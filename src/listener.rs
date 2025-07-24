@@ -2,8 +2,9 @@
 use crate::{config::Config, proxy::run_proxy_for_port};
 use anyhow::Result;
 use tokio::task;
+use crate::registry::PortRegistry;
 
-pub async fn run_all_ports(cfg: Config) -> Result<()> {
+pub async fn run_all_ports(cfg: Config, registry: PortRegistry) -> Result<()> {
     for pb in cfg.ports.clone() {
         let cfg_cloned = cfg.clone();
         task::spawn(async move {

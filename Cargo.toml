@@ -20,8 +20,8 @@ sha2 = "0.11.0-rc.0"
 hex = "0.4.3"
 httparse = "1.10.1"
 flate2 = { version = "1.1.2", features = ["zlib"] }
-dashmap = "5.5.3"
 futures = "0.3.31"
 base64 = "0.22"
 memchr = "2.7.5"
 hyper = "1.6.0"
+dashmap = { version = "5.5.3", features = ["serde"] }

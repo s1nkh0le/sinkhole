@@ -1,6 +1,7 @@
 use anyhow::Result;
 use tokio::net::TcpListener;
 use tracing_subscriber::{fmt, EnvFilter};
+use crate::listener::run_all_ports;
 
 mod types;
 mod utils;
@@ -10,6 +11,8 @@ mod listener;
 mod proxy;
 mod observability;
 mod http;
+mod rules;
+mod registry;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -18,19 +21,31 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    let cfg = config::load()?;
-    tracing::info!(?cfg, "loaded configuration");
 
-    // spawn proxies
+    let cfg = config::load()?;
+    let registry = registry::build_registry(&cfg);
+
     let proxy_cfg = cfg.clone();
+    let reg_clone = registry.clone();
     tokio::spawn(async move {
-        if let Err(e) = listener::run_all_ports(proxy_cfg).await {
+        if let Err(e) = run_all_ports(proxy_cfg, reg_clone).await {
             tracing::error!(error=?e, "proxy listeners exited with error");
         }
     });
 
     // control API
-    let app = api::routes::build_router(cfg.clone());
+    let app = api::routes::build_router(cfg.clone(), registry.clone());
+    let bind = cfg.ctrl_bind_addr();
+    let listener = TcpListener::bind(bind).await?;
+    axum::serve(listener, app).await?;
+
+
+
+
+
+
+    // control API
+    let app = api::routes::build_router(cfg.clone(), registry.clone());
     let bind = cfg.ctrl_bind_addr();
     let listener = TcpListener::bind(bind).await?;
     tracing::info!("control API listening on {}", bind);
