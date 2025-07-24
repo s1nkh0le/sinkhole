@@ -11,7 +11,7 @@ pub enum Scope {
     HttpBody,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Decision {
     Allow,
     Drop,

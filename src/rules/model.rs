@@ -4,11 +4,35 @@ use serde::{Serialize, Deserialize};
 fn default_enabled() -> bool { true }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct MatcherDef {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(flatten)]
-    pub props: serde_json::Value,
+#[serde(tag = "type")]
+pub enum MatcherDef {
+    // regex family
+    StreamRegex {
+        pattern: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
+    PathRegex {
+        pattern: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
+    BodyRegex {
+        pattern: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
+    HeaderRegex {
+        header_name: String,
+        pattern: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
+    // numeric
+    Size {
+        op: String,   // ">", ">=", "<", "<=", "==", "!="
+        value: usize,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

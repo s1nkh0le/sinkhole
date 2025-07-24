@@ -35,7 +35,7 @@ pub async fn get_ruleset(
     State((_cfg, registry)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Some(pr) = registry.get(&port) {
-        let rs_arc = pr.ruleset.load();
+        let rs_arc = pr.raw_ruleset.load();
         let version = rules::calc_version(&rs_arc).unwrap_or_default();
         (
             StatusCode::OK,
@@ -94,7 +94,7 @@ pub async fn put_ruleset(
         }
     };
 
-    pr.ruleset.store(Arc::new(body));
+    pr.raw_ruleset.store(Arc::new(body));
 
     (
         StatusCode::OK,

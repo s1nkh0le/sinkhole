@@ -1,36 +1,68 @@
-use crate::config::PortBinding;
-use arc_swap::ArcSwap;
-use dashmap::DashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
-// #[derive(Clone)]
+use anyhow::Result;
+use arc_swap::ArcSwap;
+use dashmap::DashMap;
+
+use crate::{
+    config::{Config, PortBinding},
+    rules::{
+        compile::{compile_ruleset, CompiledRuleSet},
+        model::RuleSetRaw,
+    },
+    types::Scope,
+};
+
+use crate::observability::stats::CountersMap;
+
+/// In‑memory runtime object for one public port.
 pub struct PortRuntime {
     pub binding: PortBinding,
-    pub enabled_scopes: std::collections::HashSet<crate::types::Scope>,
-    pub ruleset: ArcSwap<crate::rules::RuleSetRaw>, // compiled later
+    pub enabled_scopes: HashSet<Scope>,
+
+    /// Raw JSON ruleset.
+    pub raw_ruleset: ArcSwap<RuleSetRaw>,
+
+    /// Compiled ruleset for the engine.
+    pub compiled: ArcSwap<CompiledRuleSet>,
+
+    pub marker_counters: CountersMap,
+    pub filter_counters: CountersMap,
 }
 
+/// Key = public port
 pub type PortRegistry = DashMap<u16, Arc<PortRuntime>>;
 
-pub fn build_registry(cfg: &crate::config::Config) -> PortRegistry {
+pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
     let reg = PortRegistry::new();
+
     for pb in &cfg.ports {
+        let empty_raw = Arc::new(RuleSetRaw {
+            comment: None,
+            markers: vec![],
+            filters: vec![],
+        });
+        let empty_compiled = Arc::new(compile_ruleset(&empty_raw)?);
+
         let pr = Arc::new(PortRuntime {
             binding: pb.clone(),
-            enabled_scopes: std::collections::HashSet::from_iter([
-                crate::types::Scope::Meta,
-                crate::types::Scope::Stream,
-                crate::types::Scope::HttpHeader,
-                crate::types::Scope::HttpPath,
-                crate::types::Scope::HttpBody,
-            ]),
-            ruleset: ArcSwap::from_pointee(crate::rules::RuleSetRaw {
-                comment: None,
-                markers: vec![],
-                filters: vec![],
-            }),
+            enabled_scopes: default_scopes(),
+            raw_ruleset: ArcSwap::from(empty_raw),
+            compiled: ArcSwap::from(empty_compiled),
+            marker_counters: CountersMap::new(),
+            filter_counters: CountersMap::new(),
         });
+
         reg.insert(pb.public, pr);
     }
-    reg
+
+    Ok(reg)
+}
+
+fn default_scopes() -> HashSet<Scope> {
+    use Scope::*;
+    [Meta, Stream, HttpHeader, HttpPath, HttpBody]
+        .into_iter()
+        .collect()
 }

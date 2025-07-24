@@ -13,6 +13,8 @@ mod observability;
 mod http;
 mod rules;
 mod registry;
+mod matcher;
+mod engine;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,7 +25,7 @@ async fn main() -> Result<()> {
 
 
     let cfg = config::load()?;
-    let registry = registry::build_registry(&cfg);
+    let registry = registry::build_registry(&cfg)?;
 
     let proxy_cfg = cfg.clone();
     let reg_clone = registry.clone();
@@ -39,17 +41,6 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(bind).await?;
     axum::serve(listener, app).await?;
 
-
-
-
-
-
-    // control API
-    let app = api::routes::build_router(cfg.clone(), registry.clone());
-    let bind = cfg.ctrl_bind_addr();
-    let listener = TcpListener::bind(bind).await?;
-    tracing::info!("control API listening on {}", bind);
-    axum::serve(listener, app).await?;
 
     Ok(())
 }
