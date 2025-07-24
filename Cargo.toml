@@ -1,0 +1,27 @@
+[package]
+name = "tfilter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+arc-swap = "1.7.1"
+axum = { version = "0.8.4", features = ["json"] }
+bytes = "1.10.1"
+twoway = "0.2.2"
+envy = "0.4.2"
+regex = { version = "1.11.1", default-features = false, features = ["std", "perf", "unicode"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.46.1", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter"] }
+sha2 = "0.11.0-rc.0"
+hex = "0.4.3"
+httparse = "1.10.1"
+flate2 = { version = "1.1.2", features = ["zlib"] }
+dashmap = "5.5.3"
+futures = "0.3.31"
+base64 = "0.22"
+memchr = "2.7.5"
+hyper = "1.6.0"
