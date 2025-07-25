@@ -44,6 +44,7 @@ pub struct EvaluationDetail {
     pub match_output: MatchOutput,
 }
 
+// per‑message
 #[derive(Serialize, Clone, Debug)]
 pub struct StatsSnapshot {
     pub blacklist_hits: u64,
@@ -52,6 +53,7 @@ pub struct StatsSnapshot {
     pub whitelist_any_total: u64,
     pub whitelist_any_hit: u64,
 }
+
 
 #[derive(Serialize, Clone, Debug)]
 pub struct EvaluationRecord {
@@ -66,7 +68,6 @@ pub struct EvaluationRecord {
     pub http: Option<HttpInfo>,
     pub raw_b64: String,
     pub details: Vec<EvaluationDetail>,
-    pub stats_snapshot: Option<StatsSnapshot>,
     // meta
     pub src_ip: String,
     pub src_port: u16,

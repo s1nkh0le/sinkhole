@@ -11,7 +11,6 @@ use crate::{
         eval_record::{
             DropReason, EvaluationDetail, EvaluationRecord, HttpInfo, MatchOutput, StatsSnapshot,
         },
-        stats::{get_or_init},
     },
     rules::compile::{CompiledFilter, CompiledMarker, CompiledRuleSet, MatcherMeta},
     types::{Decision, Direction, MatchStatus, Mode, Scope},
@@ -58,18 +57,16 @@ pub fn evaluate(
             continue;
         }
 
-        let counters = get_or_init(&port_rt.marker_counters, &m.id);
         let input = build_match_input(msg, m.scope);
         let out = m.matcher.evaluate(&input);
 
         match out.status {
             MatchStatus::Satisfied => {
-                counters.inc_hits();
                 verified.insert(&m.id);
             }
-            MatchStatus::NotSatisfied => counters.inc_misses(),
-            MatchStatus::Skipped => counters.inc_skipped(),
-            MatchStatus::Error => counters.inc_errors(),
+            MatchStatus::NotSatisfied => {},
+            MatchStatus::Skipped => {},
+            MatchStatus::Error => {},
         }
 
         details.push(build_detail(
@@ -109,10 +106,8 @@ pub fn evaluate(
             && (f.needed_any.is_empty()
             || f.needed_any.iter().any(|id| verified.contains(id.as_str())));
 
-        let counters = get_or_init(&port_rt.filter_counters, &f.id);
 
         if !gated {
-            counters.inc_skipped();
             details.push(build_detail(
                 "filter",
                 f,
@@ -135,21 +130,17 @@ pub fn evaluate(
         let input = build_match_input(msg, f.scope);
         let out = f.matcher.evaluate(&input);
 
-        // update counters & whitelist hit
         match out.status {
             MatchStatus::Satisfied => {
-                counters.inc_hits();
                 match f.mode {
                     Mode::Blacklist => blacklist_hit = true,
                     Mode::WhitelistAll => wl_all_hit += 1,
                     Mode::WhitelistAny => wl_any_hit += 1,
                 }
             }
-            MatchStatus::NotSatisfied => {
-                counters.inc_misses();
-            }
-            MatchStatus::Skipped => counters.inc_skipped(),
-            MatchStatus::Error => counters.inc_errors(),
+            MatchStatus::NotSatisfied => {}
+            MatchStatus::Skipped => {},
+            MatchStatus::Error => {},
         }
 
         // decision effect field
@@ -219,17 +210,6 @@ pub fn evaluate(
         truncated: h.truncated,
     });
 
-    let stats_snapshot = Some(StatsSnapshot {
-        blacklist_hits: port_rt
-            .filter_counters
-            .get("blacklist_hits")
-            .map(|c| c.hits.load(std::sync::atomic::Ordering::Relaxed))
-            .unwrap_or(0),
-        whitelist_all_total: wl_all_total,
-        whitelist_all_hit: wl_all_hit,
-        whitelist_any_total: wl_any_total,
-        whitelist_any_hit: wl_any_hit,
-    });
 
     let record = EvaluationRecord {
         timestamp_ns: now_ns(),
@@ -243,7 +223,6 @@ pub fn evaluate(
         http: http_info,
         raw_b64: base64::engine::general_purpose::STANDARD.encode(msg.raw),
         details,
-        stats_snapshot,
         src_ip: msg.src_ip.to_owned(),
         src_port: msg.src_port,
         dst_ip: "0.0.0.0".into(),

@@ -137,7 +137,9 @@ async fn handle_conn(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
+
+
+
 async fn pump<R, W>(
     conn_id: u64,
     inbound: bool,
@@ -156,79 +158,71 @@ where
     let mut seq = 0u64;
     let mut buf = BytesMut::with_capacity(8192);
 
+    // helper closure --------------------------------------------------------
+    let mut process_chunk = async |raw: &[u8], http_opt: Option<&crate::http::HttpMessage>| -> Result<bool> {
+        // ---- build ctx & evaluate ----------------------------------------
+        let msg_ctx = MessageCtx {
+            conn_id,
+            seq,
+            inbound,
+            public_port,
+            upstream_port,
+            raw,
+            http: http_opt,
+            src_ip: &src_addr.ip().to_string(),
+            src_port: src_addr.port(),
+        };
+        let compiled = port_rt.compiled.load();
+        let (decision, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
+        emit_record(&rec);
+
+        // ---- log & maybe forward -----------------------------------------
+        tracing::trace!(
+            conn_id,
+            dir = if inbound { "in" } else { "out" },
+            bytes = raw.len(),
+            ?decision,
+            "processed chunk"
+        );
+
+        seq += 1;
+        if decision == Decision::Allow {
+            writer.write_all(raw).await?;
+            Ok(true)
+        } else {
+            Ok(false) // signal to stop
+        }
+    };
+
+    // main read loop --------------------------------------------------------
     loop {
         let read_n = reader.read_buf(&mut buf).await?;
         if read_n == 0 {
-            break;
+            break; // EOF
         }
 
-        // try parse HTTP
-        let eval = |raw: &[u8], http_opt: Option<&crate::http::HttpMessage>| -> Decision {
-            let msg_ctx = MessageCtx {
-                conn_id,
-                seq,
-                inbound,
-                public_port,
-                upstream_port,
-                raw,
-                http: http_opt,
-                src_ip: &src_addr.ip().to_string(),
-                src_port: src_addr.port(),
-            };
-            let compiled = port_rt.compiled.load();
-            let (decision, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
-            emit_record(&rec);
-            decision
-        };
-
+        // complete HTTP message?
         if let Ok(Some((parsed, used))) = parse_http(&buf) {
             let raw = buf.split_to(used).freeze();
-            let decision = eval(&raw, Some(&parsed.msg));
-            seq += 1;
-
-            if decision == Decision::Allow {
-                writer.write_all(&raw).await?;
-            } else if !debug {
-                break;
+            if !process_chunk(&raw, Some(&parsed.msg)).await? && !debug {
+                return Ok(());
             }
-        } else if buf.len() > 8192 {
-            let raw = buf.split().freeze();
-            let decision = eval(&raw, None);
-            seq += 1;
+            continue;
+        }
 
-            if decision == Decision::Allow {
-                writer.write_all(&raw).await?;
-            } else if !debug {
-                break;
+        // buffer too large? evaluate as raw stream
+        if buf.len() > 8192 {
+            let raw = buf.split().freeze();
+            if !process_chunk(&raw, None).await? && !debug {
+                return Ok(());
             }
         }
     }
 
-    // after the loop
+    // leftover bytes after EOF
     if !buf.is_empty() {
-        // treat remaining bytes as a raw stream message
         let raw = buf.split().freeze();
-        let decision = {
-            let msg_ctx = MessageCtx {
-                conn_id,
-                seq,
-                inbound,
-                public_port,
-                upstream_port,
-                raw: &raw,
-                http: None,
-                src_ip: &src_addr.ip().to_string(),
-                src_port: src_addr.port(),
-            };
-            let compiled = port_rt.compiled.load();
-            let (d, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
-            emit_record(&rec);
-            d
-        };
-
-        if decision == Decision::Allow {
-            writer.write_all(&raw).await?;
-        }
+        process_chunk(&raw, None).await?;
     }
 
     writer.flush().await?;

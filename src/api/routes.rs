@@ -5,10 +5,10 @@ use crate::{
     rules::{self, compile::CompiledRuleSet},
 };
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     routing::get,
-    Json, Router,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -20,10 +20,7 @@ pub fn build_router(cfg: Config, registry: PortRegistry) -> Router {
         .route("/health", get(health))
         .route("/version", get(version))
         .route("/ports/{port}/stats", get(get_stats))
-        .route(
-            "/ports/{port}/ruleset",
-            get(get_ruleset).put(put_ruleset),
-        )
+        .route("/ports/{port}/ruleset", get(get_ruleset).put(put_ruleset))
         .with_state((cfg, registry))
 }
 
@@ -79,7 +76,7 @@ pub async fn put_ruleset(
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({"status":"error","errors":["unknown port"]})),
-            )
+            );
         }
     };
 
@@ -144,11 +141,7 @@ pub async fn get_stats(
 ) -> (StatusCode, Json<serde_json::Value>) {
     match registry.get(&port) {
         Some(pr) => {
-            let snap = crate::observability::stats::capture(&pr);
-            (
-                StatusCode::OK,
-                Json(json!({"status":"ok","data": snap })),
-            )
+            (StatusCode::OK, Json(json!({"status":"ok","data": "" })))
         }
         None => (
             StatusCode::NOT_FOUND,

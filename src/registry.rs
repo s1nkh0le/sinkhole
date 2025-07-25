@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-
+use std::sync::atomic::AtomicU64;
 use anyhow::Result;
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
@@ -14,8 +14,6 @@ use crate::{
     types::Scope,
 };
 
-use crate::observability::stats::CountersMap;
-
 /// In‑memory runtime object for one public port.
 pub struct PortRuntime {
     pub binding: PortBinding,
@@ -26,9 +24,6 @@ pub struct PortRuntime {
 
     /// Compiled ruleset for the engine.
     pub compiled: ArcSwap<CompiledRuleSet>,
-
-    pub marker_counters: CountersMap,
-    pub filter_counters: CountersMap,
 }
 
 /// Key = public port
@@ -50,8 +45,6 @@ pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
             enabled_scopes: default_scopes(),
             raw_ruleset: ArcSwap::from(empty_raw),
             compiled: ArcSwap::from(empty_compiled),
-            marker_counters: CountersMap::new(),
-            filter_counters: CountersMap::new(),
         });
 
         reg.insert(pb.public, pr);
