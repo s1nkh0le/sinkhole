@@ -1,14 +1,14 @@
 use crate::matcher::header_regex::HeaderRegex;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use super::{
+    model::{FilterDef, MarkerDef, MatcherDef, RuleSetRaw},
+    version::calc_version,
+};
 use crate::matcher::Matcher;
 use crate::matcher::size::{CmpOp, SizeMatcher};
 use crate::types::{Mode, RuleDirection, Scope};
-use super::{
-    model::{FilterDef, MatcherDef, MarkerDef, RuleSetRaw},
-    version::calc_version,
-};
+use anyhow::{Result, anyhow};
 
 pub struct CompiledMarker {
     pub id: String,
@@ -17,6 +17,7 @@ pub struct CompiledMarker {
     pub scope: Scope,
     pub matcher: Arc<dyn Matcher>,
     pub enabled: bool,
+    pub meta: MatcherMeta,
 }
 
 pub struct CompiledFilter {
@@ -29,6 +30,14 @@ pub struct CompiledFilter {
     pub needed_all: Vec<String>,
     pub needed_any: Vec<String>,
     pub enabled: bool,
+    pub meta: MatcherMeta,
+}
+
+#[derive(Clone)]
+pub struct MatcherMeta {
+    pub comparator: String, // "regex" | "size"
+    pub target: String,     // e.g. "header:user-agent", "body", "stream", "path", "meta"
+    pub condition: String,  // human‑readable: `regex /foo/` or `size > 1000`
 }
 
 pub struct CompiledRuleSet {
@@ -66,23 +75,27 @@ pub fn compile_ruleset(raw: &RuleSetRaw) -> Result<CompiledRuleSet> {
 // helpers
 // --------------------------------------------------
 fn compile_marker(m: &MarkerDef) -> Result<CompiledMarker> {
+    let (matcher, meta) = compile_matcher(&m.scope, &m.matcher)?;
     Ok(CompiledMarker {
         id: m.id.clone(),
         name: m.name.clone(),
         direction: m.direction,
         scope: m.scope,
-        matcher: compile_matcher(&m.scope, &m.matcher)?,
+        matcher,
+        meta,
         enabled: m.enabled,
     })
 }
 
 fn compile_filter(f: &FilterDef) -> Result<CompiledFilter> {
+    let (matcher, meta) = compile_matcher(&f.scope, &f.matcher)?;
     Ok(CompiledFilter {
         id: f.id.clone(),
         name: f.name.clone(),
         direction: f.direction,
         scope: f.scope,
-        matcher: compile_matcher(&f.scope, &f.matcher)?,
+        matcher,
+        meta,
         mode: f.mode,
         needed_all: f.needed_markers_all.clone(),
         needed_any: f.needed_markers_any.clone(),
@@ -90,37 +103,72 @@ fn compile_filter(f: &FilterDef) -> Result<CompiledFilter> {
     })
 }
 
-fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<Arc<dyn Matcher>> {
+
+fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>, MatcherMeta)> {
     use MatcherDef::*;
     match def {
-        StreamRegex { pattern, case_sensitive } => {
-            ensure_scope(scope, Scope::Stream, "stream_regex")?;
-            Ok(Arc::new(crate::matcher::stream_regex::StreamRegex::new(pattern, *case_sensitive)?))
-        }
-        PathRegex { pattern, case_sensitive } => {
-            ensure_scope(scope, Scope::HttpPath, "path_regex")?;
-            Ok(Arc::new(crate::matcher::path_regex::PathRegex::new(pattern, *case_sensitive)?))
-        }
-        BodyRegex { pattern, case_sensitive } => {
-            ensure_scope(scope, Scope::HttpBody, "body_regex")?;
-            Ok(Arc::new(crate::matcher::body_regex::BodyRegex::new(pattern, *case_sensitive)?))
-        }
+        StreamRegex { pattern, .. } => Ok((
+            Arc::new(crate::matcher::stream_regex::StreamRegex::new(
+                pattern, false,
+            )?),
+            MatcherMeta {
+                comparator: "regex".into(),
+                target: "stream".into(),
+                condition: format!("regex /{}/", pattern),
+            },
+        )),
         HeaderRegex {
             header_name,
             pattern,
-            case_sensitive,
-        } => {
-            ensure_scope(scope, Scope::HttpHeader, "header_regex")?;
-            Ok(Arc::new(crate::matcher::header_regex::HeaderRegex::new(
+            ..
+        } => Ok((
+            Arc::new(crate::matcher::header_regex::HeaderRegex::new(
                 header_name,
                 pattern,
-                *case_sensitive,
-            )?))
-        }
-        Size { op, value } => {
-            let cmp = parse_op(op)?;
-            Ok(Arc::new(SizeMatcher::new(cmp, *value)))
-        }
+                false,
+            )?),
+            MatcherMeta {
+                comparator: "regex".into(),
+                target: format!("header:{}", header_name.to_ascii_lowercase()),
+                condition: format!("regex /{}/", pattern),
+            },
+        )),
+        Size { op, value } => Ok((
+            Arc::new(SizeMatcher::new(parse_op(op)?, *value)),
+            MatcherMeta {
+                comparator: "size".into(),
+                target: match scope {
+                    Scope::Meta => "meta".into(),
+                    Scope::Stream => "stream".into(),
+                    Scope::HttpBody => "body".into(),
+                    Scope::HttpPath => "path".into(),
+                    Scope::HttpHeader => "header".into(),
+                },
+                condition: format!("size {} {}", op, value),
+            },
+        )),
+        PathRegex { pattern, .. } => Ok((
+            Arc::new(crate::matcher::path_regex::PathRegex::new(
+                pattern,
+                false,
+            )?),
+            MatcherMeta {
+                comparator: "regex".into(),
+                target: "path".into(),
+                condition: format!("regex /{}/", pattern),
+            },
+        )),
+        BodyRegex { pattern, .. } => Ok((
+            Arc::new(crate::matcher::body_regex::BodyRegex::new(
+                pattern,
+                false,
+            )?),
+            MatcherMeta {
+                comparator: "regex".into(),
+                target: "body".into(),
+                condition: format!("regex /{}/", pattern),
+            },
+        )),
     }
 }
 

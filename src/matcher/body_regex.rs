@@ -15,7 +15,7 @@ impl BodyRegex {
 
 impl Matcher for BodyRegex {
     fn evaluate(&self, inp: &MatchInput) -> MatchOutputCore {
-        if inp.scope != Scope::HttpPath {
+        if inp.scope != Scope::HttpBody {
             return MatchOutputCore::skipped("scope mismatch");
         }
 

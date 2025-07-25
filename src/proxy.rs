@@ -172,7 +172,6 @@ where
                 upstream_port,
                 raw,
                 http: http_opt,
-                scope: crate::types::Scope::Stream,
                 src_ip: &src_addr.ip().to_string(),
                 src_port: src_addr.port(),
             };
@@ -204,6 +203,34 @@ where
             }
         }
     }
+
+    // after the loop
+    if !buf.is_empty() {
+        // treat remaining bytes as a raw stream message
+        let raw = buf.split().freeze();
+        let decision = {
+            let msg_ctx = MessageCtx {
+                conn_id,
+                seq,
+                inbound,
+                public_port,
+                upstream_port,
+                raw: &raw,
+                http: None,
+                src_ip: &src_addr.ip().to_string(),
+                src_port: src_addr.port(),
+            };
+            let compiled = port_rt.compiled.load();
+            let (d, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
+            emit_record(&rec);
+            d
+        };
+
+        if decision == Decision::Allow {
+            writer.write_all(&raw).await?;
+        }
+    }
+
     writer.flush().await?;
     Ok(())
 }

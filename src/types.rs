@@ -4,34 +4,38 @@ pub type RuleId = String;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum Scope {
+    #[serde(rename = "meta")]
     Meta,
+    #[serde(rename = "stream")]
     Stream,
+    #[serde(rename = "http.header")]
     HttpHeader,
+    #[serde(rename = "http.path")]
     HttpPath,
+    #[serde(rename = "http.body")]
     HttpBody,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum Decision {
     Allow,
     Drop,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum MatchStatus {
-    Satisfied,
-    NotSatisfied,
-    Skipped,
-    Error,
-}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MatchStatus { Satisfied, NotSatisfied, Skipped, Error }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Mode { Blacklist, WhitelistAll, WhitelistAny }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Direction { Inbound, Outbound }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RuleDirection { Inbound, Outbound, Both }
 
 impl RuleDirection {

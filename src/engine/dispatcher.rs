@@ -1,16 +1,24 @@
+//! Two‑phase evaluation (markers → filters) for a single message.
+
+use std::collections::HashSet;
+use std::sync::Arc;
+
+use base64::Engine;
+use tracing::debug;
 use crate::{
-    observability::stats,
-    rules::compile::{CompiledFilter, CompiledMarker, CompiledRuleSet},
-    types::{Decision, Direction, MatchStatus, Scope},
+    matcher::{MatchInput, MatchOutputCore},
+    observability::{
+        eval_record::{
+            DropReason, EvaluationDetail, EvaluationRecord, HttpInfo, MatchOutput, StatsSnapshot,
+        },
+        stats::{get_or_init},
+    },
+    rules::compile::{CompiledFilter, CompiledMarker, CompiledRuleSet, MatcherMeta},
+    types::{Decision, Direction, MatchStatus, Mode, Scope},
     utils::now_ns,
 };
-use crate::matcher::{MatchInput, MatchOutputCore};
-use super::decision::{final_decision, WhitelistState};
-use crate::observability::eval_record::{EvaluationDetail, EvaluationRecord, MatchOutput};
+
 use crate::registry::PortRuntime;
-use std::sync::Arc;
-use crate::types::Mode;
-use base64::Engine;
 
 pub struct MessageCtx<'a> {
     pub conn_id: u64,
@@ -18,103 +26,211 @@ pub struct MessageCtx<'a> {
     pub inbound: bool,
     pub public_port: u16,
     pub upstream_port: u16,
+
     pub raw: &'a [u8],
     pub http: Option<&'a crate::http::HttpMessage>,
-    pub scope: Scope, // stream or http.xxx depending on rule
+
     pub src_ip: &'a str,
     pub src_port: u16,
 }
 
+/// Main entry: evaluate all rules, return (Decision, EvaluationRecord)
 pub fn evaluate(
     compiled: &Arc<CompiledRuleSet>,
     port_rt: &Arc<PortRuntime>,
     msg: &MessageCtx,
     debug: bool,
 ) -> (Decision, EvaluationRecord) {
-    let mut details = Vec::<EvaluationDetail>::new();
-    let mut verified = std::collections::HashSet::new();
+    // ----------------------------------------------------------------
+    // Phase 1 – markers
+    // ----------------------------------------------------------------
+    let dir = if msg.inbound {
+        Direction::Inbound
+    } else {
+        Direction::Outbound
+    };
 
-    // ---- Phase 1 markers ----
+    let mut details = Vec::<EvaluationDetail>::new();
+    let mut verified: HashSet<&str> = HashSet::new();
+
     for m in &compiled.markers {
-        if !m.enabled || !m.direction.matches(if msg.inbound {Direction::Inbound} else {Direction::Outbound}) {
+        if !m.enabled || !m.direction.matches(dir) {
             continue;
         }
-        let counters = stats::get_or_init(&port_rt.marker_counters, &m.id);
-        let mi = build_input(msg, m.scope);
 
-        let out = m.matcher.evaluate(&mi);
+        let counters = get_or_init(&port_rt.marker_counters, &m.id);
+        let input = build_match_input(msg, m.scope);
+        let out = m.matcher.evaluate(&input);
+
         match out.status {
-            MatchStatus::Satisfied => { verified.insert(&m.id); counters.inc_hits(); }
+            MatchStatus::Satisfied => {
+                counters.inc_hits();
+                verified.insert(&m.id);
+            }
             MatchStatus::NotSatisfied => counters.inc_misses(),
             MatchStatus::Skipped => counters.inc_skipped(),
             MatchStatus::Error => counters.inc_errors(),
         }
-        details.push(build_detail("marker", &m.id, out));
+
+        details.push(build_detail(
+            "marker",
+            m,
+            &out,
+            m.meta.clone(),
+            None,
+            None,
+            None,
+        ));
+
+        if debug {
+            // keep evaluating all; nothing to short‑circuit for markers
+        }
     }
 
-    // ---- Phase 2 filters ----
-    let mut wl = WhitelistState::default();
+    // ----------------------------------------------------------------
+    // Phase 2 – filters
+    // ----------------------------------------------------------------
     let mut blacklist_hit = false;
+    let mut wl_all_total = 0u64;
+    let mut wl_all_hit = 0u64;
+    let mut wl_any_total = 0u64;
+    let mut wl_any_hit = 0u64;
 
-    for f in &compiled.filters {
-        if !f.enabled || !f.direction.matches(if msg.inbound {Direction::Inbound} else {Direction::Outbound}) {
+    'filters: for f in &compiled.filters {
+        if !f.enabled || !f.direction.matches(dir) {
             continue;
         }
-        // gating
-        let gated = f.needed_all.iter().all(|id| verified.contains(id))
-            && (f.needed_any.is_empty()
-            || f.needed_any.iter().any(|id| verified.contains(id)));
 
-        let counters = stats::get_or_init(&port_rt.filter_counters, &f.id);
+        // gating
+        let gated = f
+            .needed_all
+            .iter()
+            .all(|id| verified.contains(id.as_str()))
+            && (f.needed_any.is_empty()
+            || f.needed_any.iter().any(|id| verified.contains(id.as_str())));
+
+        let counters = get_or_init(&port_rt.filter_counters, &f.id);
 
         if !gated {
             counters.inc_skipped();
-            details.push(build_detail("filter", &f.id, MatchOutputCore::skipped("gated")));
+            details.push(build_detail(
+                "filter",
+                f,
+                &MatchOutputCore::skipped("gated"),
+                f.meta.clone(),
+                Some(f.mode),
+                Some(false),
+                None,
+            ));
             continue;
         }
 
-        let mi = build_input(msg, f.scope);
-        let out = f.matcher.evaluate(&mi);
+        // increment whitelist totals when gated
+        match f.mode {
+            Mode::WhitelistAll => wl_all_total += 1,
+            Mode::WhitelistAny => wl_any_total += 1,
+            _ => {}
+        }
 
+        let input = build_match_input(msg, f.scope);
+        let out = f.matcher.evaluate(&input);
+
+        // update counters & whitelist hit
         match out.status {
             MatchStatus::Satisfied => {
                 counters.inc_hits();
                 match f.mode {
                     Mode::Blacklist => blacklist_hit = true,
-                    Mode::WhitelistAll => wl.all_hit += 1,
-                    Mode::WhitelistAny => wl.any_hit += 1,
+                    Mode::WhitelistAll => wl_all_hit += 1,
+                    Mode::WhitelistAny => wl_any_hit += 1,
                 }
             }
             MatchStatus::NotSatisfied => {
                 counters.inc_misses();
-                if let Mode::WhitelistAll = f.mode {
-                    // miss in whitelist‑all counts later
-                }
             }
             MatchStatus::Skipped => counters.inc_skipped(),
             MatchStatus::Error => counters.inc_errors(),
         }
 
-        match f.mode {
-            Mode::WhitelistAll => wl.all_total += 1,
-            Mode::WhitelistAny => wl.any_total += 1,
-            _ => {}
-        }
+        // decision effect field
+        let decision_eff = match f.mode {
+            Mode::Blacklist if out.status == MatchStatus::Satisfied => Some("blacklist_drop"),
+            Mode::WhitelistAll if out.status == MatchStatus::Satisfied => {
+                Some("whitelist_all_satisfied")
+            }
+            Mode::WhitelistAny if out.status == MatchStatus::Satisfied => {
+                Some("whitelist_any_satisfied")
+            }
+            _ => None,
+        };
 
-        // early exit when blacklist
+        details.push(build_detail(
+            "filter",
+            f,
+            &out,
+            f.meta.clone(),
+            Some(f.mode),
+            Some(true),
+            decision_eff,
+        ));
+
+        // early exit if blacklist hit and not in debug
         if blacklist_hit && !debug {
-            details.push(build_detail("filter", &f.id, out));
-            break;
+            break 'filters;
         }
-
-        details.push(build_detail("filter", &f.id, out));
     }
 
-    // ---- Final decision ----
-    let mut drop_reasons = Vec::new();
-    let decision = final_decision(blacklist_hit, &wl, &mut drop_reasons);
+    // ----------------------------------------------------------------
+    // Final decision + drop reasons
+    // ----------------------------------------------------------------
+    let mut drop_reasons = Vec::<DropReason>::new();
+    let decision = if blacklist_hit {
+        drop_reasons.push(DropReason {
+            kind: "blacklist".into(),
+            detail: None,
+        });
+        Decision::Drop
+    } else if wl_all_total > 0 && wl_all_hit != wl_all_total {
+        drop_reasons.push(DropReason {
+            kind: "whitelist_all_miss".into(),
+            detail: Some(format!("hit {}/{}", wl_all_hit, wl_all_total)),
+        });
+        Decision::Drop
+    } else if wl_any_total > 0 && wl_any_hit == 0 {
+        drop_reasons.push(DropReason {
+            kind: "whitelist_any_miss".into(),
+            detail: Some("no whitelist_any hit".into()),
+        });
+        Decision::Drop
+    } else {
+        Decision::Allow
+    };
 
-    // ---- Build record ----
+    // ----------------------------------------------------------------
+    // Build EvaluationRecord
+    // ----------------------------------------------------------------
+    let http_info = msg.http.map(|h| HttpInfo {
+        method: h.method.clone(),
+        path: h.path.clone(),
+        status: h.status,
+        reason: h.reason.clone(),
+        headers: h.headers.clone(),
+        body_len: h.body.len(),
+        truncated: h.truncated,
+    });
+
+    let stats_snapshot = Some(StatsSnapshot {
+        blacklist_hits: port_rt
+            .filter_counters
+            .get("blacklist_hits")
+            .map(|c| c.hits.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(0),
+        whitelist_all_total: wl_all_total,
+        whitelist_all_hit: wl_all_hit,
+        whitelist_any_total: wl_any_total,
+        whitelist_any_hit: wl_any_hit,
+    });
+
     let record = EvaluationRecord {
         timestamp_ns: now_ns(),
         conn_id: msg.conn_id,
@@ -123,25 +239,11 @@ pub fn evaluate(
         public_port: msg.public_port,
         upstream_port: msg.upstream_port,
         decision,
-        drop_reasons: drop_reasons
-            .into_iter()
-            .map(|k| crate::observability::eval_record::DropReason {
-                kind: k,
-                detail: None,
-            })
-            .collect(),
-        http: msg.http.map(|h| crate::observability::eval_record::HttpInfo {
-            method: h.method.clone(),
-            path: h.path.clone(),
-            status: h.status,
-            reason: h.reason.clone(),
-            headers: h.headers.clone(),
-            body_len: h.body.len(),
-            truncated: h.truncated,
-        }),
+        drop_reasons,
+        http: http_info,
         raw_b64: base64::engine::general_purpose::STANDARD.encode(msg.raw),
         details,
-        stats_snapshot: None,
+        stats_snapshot,
         src_ip: msg.src_ip.to_owned(),
         src_port: msg.src_port,
         dst_ip: "0.0.0.0".into(),
@@ -151,8 +253,8 @@ pub fn evaluate(
     (decision, record)
 }
 
-// helpers -------------------------------------------------
-fn build_input<'a>(msg: &'a MessageCtx, scope: Scope) -> MatchInput<'a> {
+// ----------------------------------------------------------------
+fn build_match_input<'a>(msg: &'a MessageCtx, scope: Scope) -> MatchInput<'a> {
     MatchInput {
         scope,
         inbound: msg.inbound,
@@ -161,26 +263,58 @@ fn build_input<'a>(msg: &'a MessageCtx, scope: Scope) -> MatchInput<'a> {
     }
 }
 
-fn build_detail(kind: &str, id: &str, core: MatchOutputCore) -> EvaluationDetail {
+fn build_detail(
+    kind: &str,
+    rule: &impl HasId,                 // trait object workaround
+    core: &MatchOutputCore,
+    meta: MatcherMeta,
+    mode_opt: Option<Mode>,
+    gated_opt: Option<bool>,
+    decision_eff: Option<&str>,
+) -> EvaluationDetail {
     EvaluationDetail {
         kind: kind.into(),
-        id: id.into(),
-        name: None,
-        mode: None,
-        gated: None,
-        decision_effect: None,
+        id: rule.id().to_owned(),
+        name: rule.name().clone(),
+        mode: mode_opt.map(|m| format!("{:?}", m).to_lowercase()),
+        gated: gated_opt,
+        decision_effect: decision_eff.map(str::to_owned),
         match_output: MatchOutput {
-            scope: Scope::Stream, // placeholder
-            target: String::new(),
-            condition: String::new(),
-            input: core.input,
-            matched: core.matched,
+            scope: meta_target_to_scope(&meta.target),
+            target: meta.target,
+            condition: meta.condition,
+            input: core.input.clone(),
+            matched: core.matched.clone(),
             numeric: core.numeric,
             status: core.status,
-            comment: core.comment,
-            comparator: String::new(),
-            flags: core.flags,
-            error: core.error,
+            comment: core.comment.clone(),
+            comparator: meta.comparator,
+            flags: core.flags.clone(),
+            error: core.error.clone(),
         },
+    }
+}
+
+trait HasId {
+    fn id(&self) -> &String;
+    fn name(&self) -> &Option<String>;
+}
+impl HasId for CompiledMarker {
+    fn id(&self) -> &String { &self.id }
+    fn name(&self) -> &Option<String> { &self.name }
+}
+impl HasId for CompiledFilter {
+    fn id(&self) -> &String { &self.id }
+    fn name(&self) -> &Option<String> { &self.name }
+}
+
+fn meta_target_to_scope(t: &str) -> Scope {
+    match t {
+        "meta" => Scope::Meta,
+        "stream" => Scope::Stream,
+        "body" => Scope::HttpBody,
+        "path" => Scope::HttpPath,
+        s if s.starts_with("header") => Scope::HttpHeader,
+        _ => Scope::Stream,
     }
 }

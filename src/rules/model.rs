@@ -7,21 +7,25 @@ fn default_enabled() -> bool { true }
 #[serde(tag = "type")]
 pub enum MatcherDef {
     // regex family
+    #[serde(rename = "stream_regex")]
     StreamRegex {
         pattern: String,
         #[serde(default)]
         case_sensitive: bool,
     },
+    #[serde(rename = "path_regex")]
     PathRegex {
         pattern: String,
         #[serde(default)]
         case_sensitive: bool,
     },
+    #[serde(rename = "body_regex")]
     BodyRegex {
         pattern: String,
         #[serde(default)]
         case_sensitive: bool,
     },
+    #[serde(rename = "header_regex")]
     HeaderRegex {
         header_name: String,
         pattern: String,
@@ -29,6 +33,7 @@ pub enum MatcherDef {
         case_sensitive: bool,
     },
     // numeric
+    #[serde(rename = "size")]
     Size {
         op: String,   // ">", ">=", "<", "<=", "==", "!="
         value: usize,
