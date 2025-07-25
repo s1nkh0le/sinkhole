@@ -1,43 +1,50 @@
+use std::{collections::HashMap, sync::Arc};
+
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    routing::get,
+    Json, Router,
+};
+use serde_json::json;
+use tracing::{debug, error, info};
+
 use crate::{
     api::auth,
     config::Config,
     registry::PortRegistry,
     rules::{self, compile::CompiledRuleSet},
 };
-use axum::{
-    Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
-    routing::get,
-};
-use serde::Deserialize;
-use serde_json::json;
-use std::sync::Arc;
-use tracing::{debug, error, info};
 
 pub fn build_router(cfg: Config, registry: PortRegistry) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/version", get(version))
         .route("/ports/{port}/stats", get(get_stats))
-        .route("/ports/{port}/ruleset", get(get_ruleset).put(put_ruleset))
+        .route(
+            "/ports/{port}/ruleset",
+            get(get_ruleset).put(put_ruleset),
+        )
         .with_state((cfg, registry))
 }
 
 type SharedState = (Config, PortRegistry);
-
-#[derive(Deserialize)]
-struct TokenWrap {
-    token: String,
-}
 
 // ---------------------------------------------------------
 // GET /ruleset
 // ---------------------------------------------------------
 pub async fn get_ruleset(
     Path(port): Path<u16>,
+    Query(params): Query<HashMap<String, String>>,
     State((_cfg, registry)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    if let Err(e) = auth::check_token(params.get("token").map(String::as_str)) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"status":"error","errors":[e.to_string()]})),
+        );
+    }
+
     if let Some(pr) = registry.get(&port) {
         let rs_arc = pr.raw_ruleset.load();
         let version = rules::calc_version(&rs_arc).unwrap_or_default();
@@ -58,29 +65,29 @@ pub async fn get_ruleset(
 // ---------------------------------------------------------
 pub async fn put_ruleset(
     Path(port): Path<u16>,
-    State((cfg, registry)): State<SharedState>,
-    Json(body): Json<rules::RuleSetRaw>,
+    Query(params): Query<HashMap<String, String>>,
+    State((_cfg, registry)): State<SharedState>,
+    Json(body): Json<crate::rules::RuleSetRaw>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    // ── auth ──────────────────────────────────────────────
-    if let Err(e) = auth::check_token(None, &cfg.auth_hash) {
+    if let Err(e) = auth::check_token(params.get("token").map(String::as_str)) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"status":"error","errors":[e.to_string()]})),
         );
     }
 
-    // ── locate port ───────────────────────────────────────
+    // locate port
     let pr = match registry.get(&port) {
         Some(p) => p,
         None => {
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({"status":"error","errors":["unknown port"]})),
-            );
+            )
         }
     };
 
-    // ── validate JSON vs port scopes ──────────────────────
+    // validate
     let errs = rules::validate::validate_ruleset(&body, &pr.enabled_scopes);
     if !errs.is_empty() {
         error!(?errs, "ruleset validation failed");
@@ -90,7 +97,7 @@ pub async fn put_ruleset(
         );
     }
 
-    // ── calculate deterministic version ───────────────────
+    // version + compile
     let version = match rules::calc_version(&body) {
         Ok(v) => v,
         Err(e) => {
@@ -102,7 +109,6 @@ pub async fn put_ruleset(
         }
     };
 
-    // ── compile ───────────────────────────────────────────
     let compiled: CompiledRuleSet = match rules::compile::compile_ruleset(&body) {
         Ok(c) => c,
         Err(e) => {
@@ -122,7 +128,6 @@ pub async fn put_ruleset(
         "ruleset accepted"
     );
 
-    // ── atomically replace ────────────────────────────────
     pr.raw_ruleset.store(Arc::new(body));
     pr.compiled.store(Arc::new(compiled));
 
@@ -133,16 +138,25 @@ pub async fn put_ruleset(
 }
 
 // ---------------------------------------------------------
-// GET /stats
+// GET /stats  (currently stub)
 // ---------------------------------------------------------
 pub async fn get_stats(
     Path(port): Path<u16>,
+    Query(params): Query<HashMap<String, String>>,
     State((_cfg, registry)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    if let Err(e) = auth::check_token(params.get("token").map(String::as_str)) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"status":"error","errors":[e.to_string()]})),
+        );
+    }
+
     match registry.get(&port) {
-        Some(pr) => {
-            (StatusCode::OK, Json(json!({"status":"ok","data": "" })))
-        }
+        Some(_) => (
+            StatusCode::OK,
+            Json(json!({"status":"ok","data":"stats disabled"})),
+        ),
         None => (
             StatusCode::NOT_FOUND,
             Json(json!({"status":"error","errors":["unknown port"]})),
