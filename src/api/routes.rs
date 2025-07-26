@@ -38,7 +38,7 @@ pub async fn get_ruleset(
     Query(params): Query<HashMap<String, String>>,
     State((_cfg, registry)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str)) {
+    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), _cfg) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"status":"error","errors":[e.to_string()]})),
@@ -69,7 +69,7 @@ pub async fn put_ruleset(
     State((_cfg, registry)): State<SharedState>,
     Json(body): Json<crate::rules::RuleSetRaw>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str)) {
+    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), _cfg) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"status":"error","errors":[e.to_string()]})),
@@ -145,7 +145,7 @@ pub async fn get_stats(
     Query(params): Query<HashMap<String, String>>,
     State((_cfg, registry)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str)) {
+    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), _cfg) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"status":"error","errors":[e.to_string()]})),

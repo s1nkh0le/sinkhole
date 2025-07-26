@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bytes::BytesMut;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -52,7 +52,9 @@ pub(crate) async fn run_proxy_for_port(
     pb: PortBinding,
 ) -> Result<()> {
     let bind_addr = SocketAddr::from(([0, 0, 0, 0], pb.public));
-    let listener = TcpListener::bind(bind_addr).await?;
+    let listener = TcpListener::bind(bind_addr)
+        .await
+        .map_err(|e| anyhow!("unable to spawn proxy on address {bind_addr}: '{e}'"))?;
     tracing::info!(
         "proxy listening on {} → {}:{}",
         bind_addr,

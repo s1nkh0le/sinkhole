@@ -8,9 +8,10 @@ use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
+use crate::config::Config;
 
 static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
-    std::env::var("AUTH_HASH")
+    std::env::var("TFILTER_AUTH_HASH")
         .ok()
         .map(|s| s.to_ascii_lowercase())
 });
@@ -20,8 +21,8 @@ static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
 ///   * `AUTH_HASH` is not set
 ///      **OR**
 ///   * token is present **and** hashes to the same value.
-pub fn check_token(token_opt: Option<&str>) -> Result<()> {
-    let Some(expected_hex) = AUTH_HASH.as_ref() else {
+pub fn check_token(token_opt: Option<&str>, config: Config) -> Result<()> {
+    let Some(expected_hex) = config.auth_hash.as_ref() else {
         // auth disabled
         debug!("AUTH_HASH not set -> auth disabled");
         return Ok(());
