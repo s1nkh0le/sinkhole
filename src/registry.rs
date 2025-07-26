@@ -1,8 +1,8 @@
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::sync::atomic::AtomicU64;
 use anyhow::Result;
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, ArcSwapOption};
 use dashmap::DashMap;
 
 use crate::{
@@ -17,13 +17,17 @@ use crate::{
 /// In‑memory runtime object for one public port.
 pub struct PortRuntime {
     pub binding: PortBinding,
-    pub enabled_scopes: HashSet<Scope>,
+    pub enabled_scopes: RwLock<HashSet<Scope>>,
 
     /// Raw JSON ruleset.
     pub raw_ruleset: ArcSwap<RuleSetRaw>,
 
     /// Compiled ruleset for the engine.
     pub compiled: ArcSwap<CompiledRuleSet>,
+
+    pub name: ArcSwapOption<String>,
+    pub comment: ArcSwapOption<String>,
+    pub hex_color: ArcSwapOption<String>,
 }
 
 /// Key = public port
@@ -42,9 +46,12 @@ pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
 
         let port_runtime = Arc::new(PortRuntime {
             binding: port_binding.clone(),
-            enabled_scopes: default_scopes(),
+            enabled_scopes: RwLock::new(default_scopes()),
             raw_ruleset: ArcSwap::from(empty_raw),
             compiled: ArcSwap::from(empty_compiled),
+            name: ArcSwapOption::from(None),
+            comment: ArcSwapOption::from(None),
+            hex_color: ArcSwapOption::from(None),
         });
 
         reg.insert(port_binding.public, port_runtime);

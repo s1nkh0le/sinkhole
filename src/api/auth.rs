@@ -21,7 +21,7 @@ static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
 ///   * `AUTH_HASH` is not set
 ///      **OR**
 ///   * token is present **and** hashes to the same value.
-pub fn check_token(token_opt: Option<&str>, config: Config) -> Result<()> {
+pub fn check_token(token_opt: Option<&str>, config: &Config) -> Result<()> {
     let Some(expected_hex) = config.auth_hash.as_ref() else {
         // auth disabled
         debug!("AUTH_HASH not set -> auth disabled");

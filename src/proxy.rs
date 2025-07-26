@@ -181,7 +181,7 @@ where
         // ---- log & maybe forward -----------------------------------------
         tracing::trace!(
             conn_id,
-            dir = if inbound { "in" } else { "out" },
+            dir = if inbound { "inbound" } else { "outbound" },
             bytes = raw.len(),
             ?decision,
             "processed chunk"
