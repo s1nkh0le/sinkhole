@@ -9,6 +9,7 @@ use crate::matcher::Matcher;
 use crate::matcher::size::{CmpOp, SizeMatcher};
 use crate::types::{Mode, RuleDirection, Scope};
 use anyhow::{Result, anyhow};
+use crate::matcher::always::AlwaysMatcher;
 
 pub struct CompiledMarker {
     pub id: String,
@@ -169,6 +170,16 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 condition: format!("regex /{}/", pattern),
             },
         )),
+        Always { value } => {
+            Ok((
+                Arc::new(AlwaysMatcher::new(*value)),
+                MatcherMeta {
+                    comparator: "const".into(),
+                    target: "meta".into(),
+                    condition: format!("always {}", value),
+                },
+            ))
+        }
     }
 }
 

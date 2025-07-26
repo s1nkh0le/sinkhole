@@ -32,7 +32,7 @@ pub type PortRegistry = DashMap<u16, Arc<PortRuntime>>;
 pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
     let reg = PortRegistry::new();
 
-    for pb in &cfg.ports {
+    for port_binding in &cfg.ports {
         let empty_raw = Arc::new(RuleSetRaw {
             comment: None,
             markers: vec![],
@@ -40,14 +40,14 @@ pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
         });
         let empty_compiled = Arc::new(compile_ruleset(&empty_raw)?);
 
-        let pr = Arc::new(PortRuntime {
-            binding: pb.clone(),
+        let port_runtime = Arc::new(PortRuntime {
+            binding: port_binding.clone(),
             enabled_scopes: default_scopes(),
             raw_ruleset: ArcSwap::from(empty_raw),
             compiled: ArcSwap::from(empty_compiled),
         });
 
-        reg.insert(pb.public, pr);
+        reg.insert(port_binding.public, port_runtime);
     }
 
     Ok(reg)

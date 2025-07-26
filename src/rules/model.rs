@@ -6,7 +6,6 @@ fn default_enabled() -> bool { true }
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
 pub enum MatcherDef {
-    // regex family
     #[serde(rename = "stream_regex")]
     StreamRegex {
         pattern: String,
@@ -32,12 +31,13 @@ pub enum MatcherDef {
         #[serde(default)]
         case_sensitive: bool,
     },
-    // numeric
     #[serde(rename = "size")]
     Size {
         op: String,   // ">", ">=", "<", "<=", "==", "!="
         value: usize,
     },
+    #[serde(rename = "always")]
+    Always { value: bool },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
