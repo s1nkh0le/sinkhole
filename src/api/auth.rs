@@ -7,7 +7,7 @@
 use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
 use sha2::{Digest, Sha256};
-use tracing::{debug, warn};
+use tracing::{debug, error, trace, warn};
 use crate::config::Config;
 
 static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
@@ -24,7 +24,7 @@ static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
 pub fn check_token(token_opt: Option<&str>, config: &Config) -> Result<()> {
     let Some(expected_hex) = config.auth_hash.as_ref() else {
         // auth disabled
-        debug!("AUTH_HASH not set -> auth disabled");
+        warn!("AUTH_HASH is not set, auth disabled, allowing control action");
         return Ok(());
     };
 
@@ -36,10 +36,10 @@ pub fn check_token(token_opt: Option<&str>, config: &Config) -> Result<()> {
     };
 
     if &calc_hex == expected_hex {
-        debug!("auth ok");
+        trace!("auth ok");
         Ok(())
     } else {
-        warn!("auth failed: bad token");
+        error!("auth failed: bad token, calculated_hex={} != {}=expected_hex, token={}", &calc_hex, expected_hex, token);
         Err(anyhow!("unauthorized"))
     }
 }

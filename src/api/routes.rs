@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, error, info};
 
+use crate::db::{DbCmd, DbHandle};
 use crate::types::Scope;
 use crate::{
     api::auth,
@@ -22,6 +23,7 @@ use crate::{
 struct ConfigUpdate {
     name: Option<String>,
     comment: Option<String>,
+    hex_color: Option<String>,
     enabled_scopes: Option<Vec<Scope>>,
 }
 
@@ -33,10 +35,12 @@ struct PortInfo {
     comment: Option<String>,
     hex_color: Option<String>,
     enabled_scopes: Vec<Scope>,
-    version: String,
+    version: Option<String>,
 }
 
-pub fn build_router(cfg: Config, registry: PortRegistry) -> Router {
+type SharedState = (Config, PortRegistry, DbHandle);
+
+pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/version", get(version))
@@ -44,7 +48,7 @@ pub fn build_router(cfg: Config, registry: PortRegistry) -> Router {
         .route("/ports/{port}/config", get(get_config).put(put_config))
         .route("/ports/{port}/stats", get(get_stats))
         .route("/ports/{port}/ruleset", get(get_ruleset).put(put_ruleset))
-        .with_state((cfg, registry))
+        .with_state((cfg, registry, db_handle))
 }
 
 // ---------------------------------------------------------
@@ -52,7 +56,7 @@ pub fn build_router(cfg: Config, registry: PortRegistry) -> Router {
 // ---------------------------------------------------------
 pub async fn list_ports(
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry)): State<SharedState>,
+    State((cfg, registry, db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (
@@ -84,7 +88,7 @@ pub async fn list_ports(
             comment: comment_opt,
             hex_color: hex_color,
             enabled_scopes: scopes_vec,
-            version: compiled.version.clone(),
+            version: Some(compiled.version.clone()),
         });
     }
 
@@ -97,7 +101,7 @@ pub async fn list_ports(
 pub async fn get_config(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry)): State<SharedState>,
+    State((cfg, registry, _db)): State<SharedState>,   // _db unused here
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (
@@ -112,8 +116,7 @@ pub async fn get_config(
             let comment   = pr.comment.load().as_deref().map(ToOwned::to_owned);
             let hex_color = pr.hex_color.load().as_deref().map(ToOwned::to_owned);
             let scopes    = pr.enabled_scopes.read().unwrap().iter().cloned().collect::<Vec<_>>();
-
-            let compiled = pr.compiled.load();
+            let compiled  = pr.compiled.load();
 
             let info = PortInfo {
                 public: pr.binding.public,
@@ -122,13 +125,15 @@ pub async fn get_config(
                 comment,
                 hex_color,
                 enabled_scopes: scopes,
-                version: compiled.version.clone(),
+                version: Some(compiled.version.clone()),
             };
 
             (StatusCode::OK, Json(json!({"status":"ok","data":info})))
         }
-        None => (StatusCode::NOT_FOUND,
-                 Json(json!({"status":"error","errors":["unknown port"]}))),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"status":"error","errors":["unknown port"]})),
+        ),
     }
 }
 
@@ -138,7 +143,7 @@ pub async fn get_config(
 pub async fn put_config(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry)): State<SharedState>,
+    State((cfg, registry, db)): State<SharedState>,
     Json(body): Json<ConfigUpdate>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
@@ -180,12 +185,23 @@ pub async fn put_config(
         pr.comment.store(Some(Arc::new(c.clone())));
     }
 
+    let cfg_json = json!({
+        "name": body.name,
+        "comment": body.comment,
+        "hex_color": body.hex_color,
+        "enabled_scopes": body.enabled_scopes
+    }) .to_string();
+
+    let _ = db.tx.try_send(DbCmd::SaveConfig {
+        port,
+        json: cfg_json,
+        ts_ns: crate::utils::now_ns() as i64,
+    });
+
     info!(port, "port config updated");
 
     (StatusCode::OK, Json(json!({"status":"ok"})))
 }
-
-type SharedState = (Config, PortRegistry);
 
 // ---------------------------------------------------------
 // GET /ruleset
@@ -193,7 +209,7 @@ type SharedState = (Config, PortRegistry);
 pub async fn get_ruleset(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry)): State<SharedState>,
+    State((cfg, registry, db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (
@@ -223,7 +239,7 @@ pub async fn get_ruleset(
 pub async fn put_ruleset(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry)): State<SharedState>,
+    State((cfg, registry, db)): State<SharedState>,
     Json(body): Json<crate::rules::RuleSetRaw>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
@@ -288,8 +304,18 @@ pub async fn put_ruleset(
         "ruleset accepted"
     );
 
+    let raw_str    = serde_json::to_string(&body).unwrap();
+    let version_db = version.clone();
+
     pr.raw_ruleset.store(Arc::new(body));
     pr.compiled.store(Arc::new(compiled));
+
+    let _ = db.tx.try_send(DbCmd::SaveRuleset {
+        port,
+        version: version_db,
+        json: raw_str,
+        ts_ns: crate::utils::now_ns() as i64,
+    });
 
     (
         StatusCode::OK,
@@ -303,7 +329,7 @@ pub async fn put_ruleset(
 pub async fn get_stats(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry)): State<SharedState>,
+    State((cfg, registry, db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (

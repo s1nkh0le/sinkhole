@@ -23,6 +23,15 @@ pub enum Decision {
     Drop,
 }
 
+impl Decision {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Decision::Allow => "allow",
+            Decision::Drop  => "drop",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum MatchStatus { Satisfied, NotSatisfied, Skipped, Error }

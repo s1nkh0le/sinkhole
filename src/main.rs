@@ -7,6 +7,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use crate::{
     proxy::run_all_ports,
 };
+use crate::db::DbCmd;
 
 mod types;
 mod utils;
@@ -19,6 +20,7 @@ mod rules;
 mod registry;
 mod matcher;
 mod engine;
+mod db;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -32,10 +34,23 @@ async fn main() -> Result<()> {
     info!("starting tfilter...");
 
     let cfg = config::load()?;
-    info!(?cfg, "loaded configuration");
+    info!(?cfg, "loaded environment configuration");
 
     let registry = registry::build_registry(&cfg)?;
     info!("registry built (ports: {})", cfg.ports.len());
+
+
+
+    let db_path = std::env::var("TFILTER_DB_PATH").unwrap_or_else(|_| "tfilter.db".into());
+    let db_handle = db::init_db(&db_path)?;
+    let db_for_shutdown = db_handle.clone();
+    info!(?cfg, "db connection initialized");
+
+    observability::telemetry::init_db_sink(db_handle.clone());
+    db::hydrate_registry(&db_path, &registry)?;
+    info!(?cfg, "loaded database configuration");
+
+
 
     // spawn proxies
     let proxy_cfg = cfg.clone();
@@ -47,7 +62,7 @@ async fn main() -> Result<()> {
     });
 
     // control API
-    let app = api::routes::build_router(cfg.clone(), registry.clone());
+    let app = api::routes::build_router(cfg.clone(), registry.clone(), db_handle.clone());
     let bind = cfg.ctrl_bind_addr();
     let listener = TcpListener::bind(bind)
         .await
@@ -55,19 +70,24 @@ async fn main() -> Result<()> {
     info!("control API listening on {}", bind);
 
     // graceful shutdown
+    let shutdown = async move {
+        signal::ctrl_c().await.expect("install ctrl+c handler");
+        info!("CTRL+C received, shutting down…");
+        let _ = db_for_shutdown.tx.send(DbCmd::Shutdown).await;
+    };
+
+    // graceful shutdown
     let server = axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            signal::ctrl_c().await.expect("install ctrl+c handler");
-            info!("CTRL+C received, shutting down…");
-        });
+        .with_graceful_shutdown(shutdown);
 
     // run server and wait
+    info!("running!");
+
     server.await?;
     info!("control API server stopped");
 
     // ensure proxy task is done (it will exit when listeners stop accepting)
     let _ = proxy_handle.await;
-
     info!("tfilter exited successfully");
     Ok(())
 }
