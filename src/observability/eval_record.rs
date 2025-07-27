@@ -13,10 +13,25 @@ pub struct HttpInfo {
 }
 
 #[derive(Serialize, Clone, Debug)]
-pub struct DropReason {
-    pub kind: String,
-    pub detail: Option<String>,
+#[serde(tag = "kind")]
+pub enum DropReason {
+    #[serde(rename = "blacklist")]
+    Blacklist {
+        filter_ids: Vec<String>,
+    },
+    #[serde(rename = "whitelist_all_miss")]
+    WhitelistAllMiss {
+        required: usize,
+        hit: usize,
+        missing_ids: Vec<String>,
+    },
+    #[serde(rename = "whitelist_any_miss")]
+    WhitelistAnyMiss {
+        group_size: usize,
+        hit_ids: Vec<String>,
+    },
 }
+
 
 #[derive(Serialize, Clone, Debug)]
 pub struct MatchOutput {

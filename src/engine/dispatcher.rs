@@ -85,27 +85,26 @@ pub fn evaluate(
     }
 
     // ----------------------------------------------------------------
-    // Phase 2 – filters
+    // Phase 2 – filters  (REPLACE EVERYTHING UNTIL "Final decision")
     // ----------------------------------------------------------------
-    let mut blacklist_hit = false;
-    let mut wl_all_total = 0u64;
-    let mut wl_all_hit = 0u64;
-    let mut wl_any_total = 0u64;
-    let mut wl_any_hit = 0u64;
+    let mut blacklist_hits: Vec<String> = Vec::new();
+
+    let mut wl_all_req:   Vec<String> = Vec::new(); // gated whitelist-all filters
+    let mut wl_all_hit:   Vec<String> = Vec::new();
+
+    let mut wl_any_req:   Vec<String> = Vec::new(); // gated whitelist-any filters
+    let mut wl_any_hit:   Vec<String> = Vec::new();
 
     'filters: for f in &compiled.filters {
         if !f.enabled || !f.direction.matches(dir) {
             continue;
         }
 
-        // gating
+        // gating ------------------------------------------------------------
         let gated = f
-            .needed_all
-            .iter()
-            .all(|id| verified.contains(id.as_str()))
+            .needed_all.iter().all(|id| verified.contains(id.as_str()))
             && (f.needed_any.is_empty()
             || f.needed_any.iter().any(|id| verified.contains(id.as_str())));
-
 
         if !gated {
             details.push(build_detail(
@@ -120,38 +119,31 @@ pub fn evaluate(
             continue;
         }
 
-        // increment whitelist totals when gated
+        // track whitelist groups only when gated
         match f.mode {
-            Mode::WhitelistAll => wl_all_total += 1,
-            Mode::WhitelistAny => wl_any_total += 1,
+            Mode::WhitelistAll => wl_all_req.push(f.id.clone()),
+            Mode::WhitelistAny => wl_any_req.push(f.id.clone()),
             _ => {}
         }
 
+        // evaluate matcher ---------------------------------------------------
         let input = build_match_input(msg, f.scope);
         let out = f.matcher.evaluate(&input);
 
-        match out.status {
-            MatchStatus::Satisfied => {
-                match f.mode {
-                    Mode::Blacklist => blacklist_hit = true,
-                    Mode::WhitelistAll => wl_all_hit += 1,
-                    Mode::WhitelistAny => wl_any_hit += 1,
-                }
+        // account hits
+        if out.status == MatchStatus::Satisfied {
+            match f.mode {
+                Mode::Blacklist    => blacklist_hits.push(f.id.clone()),
+                Mode::WhitelistAll => wl_all_hit.push(f.id.clone()),
+                Mode::WhitelistAny => wl_any_hit.push(f.id.clone()),
             }
-            MatchStatus::NotSatisfied => {}
-            MatchStatus::Skipped => {},
-            MatchStatus::Error => {},
         }
 
-        // decision effect field
+        // decision_effect for telemetry
         let decision_eff = match f.mode {
             Mode::Blacklist if out.status == MatchStatus::Satisfied => Some("blacklist_drop"),
-            Mode::WhitelistAll if out.status == MatchStatus::Satisfied => {
-                Some("whitelist_all_satisfied")
-            }
-            Mode::WhitelistAny if out.status == MatchStatus::Satisfied => {
-                Some("whitelist_any_satisfied")
-            }
+            Mode::WhitelistAll if out.status == MatchStatus::Satisfied => Some("whitelist_all_satisfied"),
+            Mode::WhitelistAny if out.status == MatchStatus::Satisfied => Some("whitelist_any_satisfied"),
             _ => None,
         };
 
@@ -165,8 +157,8 @@ pub fn evaluate(
             decision_eff,
         ));
 
-        // early exit if blacklist hit and not in debug
-        if blacklist_hit && !debug {
+        // early stop on first blacklist in normal mode
+        if !debug && !blacklist_hits.is_empty() {
             break 'filters;
         }
     }
@@ -175,27 +167,38 @@ pub fn evaluate(
     // Final decision + drop reasons
     // ----------------------------------------------------------------
     let mut drop_reasons = Vec::<DropReason>::new();
-    let decision = if blacklist_hit {
-        drop_reasons.push(DropReason {
-            kind: "blacklist".into(),
-            detail: None,
-        });
-        Decision::Drop
-    } else if wl_all_total > 0 && wl_all_hit != wl_all_total {
-        drop_reasons.push(DropReason {
-            kind: "whitelist_all_miss".into(),
-            detail: Some(format!("hit {}/{}", wl_all_hit, wl_all_total)),
-        });
-        Decision::Drop
-    } else if wl_any_total > 0 && wl_any_hit == 0 {
-        drop_reasons.push(DropReason {
-            kind: "whitelist_any_miss".into(),
-            detail: Some("no whitelist_any hit".into()),
+
+    let decision = if !blacklist_hits.is_empty() {
+        drop_reasons.push(DropReason::Blacklist {
+            filter_ids: blacklist_hits.clone(),
         });
         Decision::Drop
     } else {
-        Decision::Allow
+        // whitelist-all miss?
+        if !wl_all_req.is_empty() && wl_all_hit.len() != wl_all_req.len() {
+            let missing: Vec<String> = wl_all_req
+                .iter()
+                .filter(|id| !wl_all_hit.contains(*id))
+                .cloned()
+                .collect();
+            drop_reasons.push(DropReason::WhitelistAllMiss {
+                required: wl_all_req.len(),
+                hit: wl_all_hit.len(),
+                missing_ids: missing,
+            });
+            Decision::Drop
+        // whitelist-any miss?
+        } else if !wl_any_req.is_empty() && wl_any_hit.is_empty() {
+            drop_reasons.push(DropReason::WhitelistAnyMiss {
+                group_size: wl_any_req.len(),
+                hit_ids: wl_any_hit.clone(),
+            });
+            Decision::Drop
+        } else {
+            Decision::Allow
+        }
     };
+
 
     // ----------------------------------------------------------------
     // Build EvaluationRecord
