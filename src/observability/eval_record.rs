@@ -1,4 +1,4 @@
-use crate::types::{Decision, Direction, Scope, MatchStatus};
+use crate::types::{Decision, Scope, MatchStatus};
 use serde::Serialize;
 
 #[derive(Serialize, Clone, Debug)]

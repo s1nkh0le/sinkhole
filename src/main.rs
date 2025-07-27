@@ -7,7 +7,8 @@ use tracing_subscriber::{fmt, EnvFilter};
 use crate::{
     proxy::run_all_ports,
 };
-use crate::db::DbCmd;
+use crate::db::actor::{init_db, DbCmd};
+use crate::db::hydration::hydrate_registry;
 
 mod types;
 mod utils;
@@ -42,12 +43,12 @@ async fn main() -> Result<()> {
 
 
     let db_path = std::env::var("TFILTER_DB_PATH").unwrap_or_else(|_| "tfilter.db".into());
-    let db_handle = db::init_db(&db_path)?;
+    let db_handle = init_db(&db_path)?;
     let db_for_shutdown = db_handle.clone();
     info!(?cfg, "db connection initialized");
 
     observability::telemetry::init_db_sink(db_handle.clone());
-    db::hydrate_registry(&db_path, &registry)?;
+    hydrate_registry(&db_path, &registry)?;
     info!(?cfg, "loaded database configuration");
 
 

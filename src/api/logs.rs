@@ -96,8 +96,7 @@ pub async fn get_logs(
         );
     }
 
-    // fetch
-    match db::fetch_records_filtered(
+    match db::query::fetch_records_filtered(
         db.path.clone(),
         port,
         since,

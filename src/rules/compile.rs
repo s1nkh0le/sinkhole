@@ -1,4 +1,3 @@
-use crate::matcher::header_regex::HeaderRegex;
 use std::sync::Arc;
 
 use super::{

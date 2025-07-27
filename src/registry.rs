@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
-use std::sync::atomic::AtomicU64;
 use anyhow::Result;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use dashmap::DashMap;

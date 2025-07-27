@@ -4,12 +4,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use base64::Engine;
-use tracing::debug;
 use crate::{
     matcher::{MatchInput, MatchOutputCore},
     observability::{
         eval_record::{
-            DropReason, EvaluationDetail, EvaluationRecord, HttpInfo, MatchOutput, StatsSnapshot,
+            DropReason, EvaluationDetail, EvaluationRecord, HttpInfo, MatchOutput,
         },
     },
     rules::compile::{CompiledFilter, CompiledMarker, CompiledRuleSet, MatcherMeta},

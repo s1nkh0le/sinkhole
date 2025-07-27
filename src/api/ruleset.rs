@@ -7,7 +7,7 @@ use serde_json::json;
 use tracing::{error, info};
 use crate::api::auth;
 use crate::api::routes::SharedState;
-use crate::db::DbCmd;
+use crate::db::actor::DbCmd;
 use crate::rules;
 use crate::rules::CompiledRuleSet;
 

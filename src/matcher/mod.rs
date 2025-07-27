@@ -1,5 +1,4 @@
 use crate::types::{MatchStatus, Scope};
-use anyhow::Result;
 
 pub struct MatchInput<'a> {
     pub scope: Scope,

@@ -5,11 +5,11 @@ use crate::api::health::{health, version};
 use crate::api::logs::get_logs;
 use crate::api::ruleset::{get_ruleset, put_ruleset};
 use crate::api::stats::get_stats;
-use crate::db::DbHandle;
 use crate::{
     config::Config,
     registry::PortRegistry
 };
+use crate::db::actor::DbHandle;
 
 pub type SharedState = (Config, PortRegistry, DbHandle);
 

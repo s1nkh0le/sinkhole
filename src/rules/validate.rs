@@ -1,6 +1,6 @@
 use super::model::*;
 use crate::types::Scope;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 // ---------------------------------------------
 // Validation entry
