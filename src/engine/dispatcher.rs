@@ -85,7 +85,7 @@ pub fn evaluate(
     }
 
     // ----------------------------------------------------------------
-    // Phase 2 – filters  (REPLACE EVERYTHING UNTIL "Final decision")
+    // Phase 2 – filters
     // ----------------------------------------------------------------
     let mut blacklist_hits: Vec<String> = Vec::new();
 
