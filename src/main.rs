@@ -1,7 +1,7 @@
 
 use anyhow::{anyhow, Result};
 use tokio::{net::TcpListener, signal};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::{

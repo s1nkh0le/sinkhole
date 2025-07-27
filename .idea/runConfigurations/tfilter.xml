@@ -3,7 +3,12 @@
     <option name="buildProfileId" value="dev" />
     <option name="command" value="run" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-    <envs />
+    <envs>
+      <env name="TFILTER_CTRL_PORT" value="7001" />
+      <env name="TFILTER_DEBUG" value="true" />
+      <env name="TFILTER_LISTEN_MAP" value="8080:80,8081:81" />
+      <env name="TFILTER_UPSTREAM_HOST" value="127.0.0.1" />
+    </envs>
     <option name="emulateTerminal" value="true" />
     <option name="channel" value="DEFAULT" />
     <option name="requiredFeatures" value="true" />

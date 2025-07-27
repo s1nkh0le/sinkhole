@@ -133,20 +133,33 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 condition: format!("regex /{}/", pattern),
             },
         )),
-        Size { op, value } => Ok((
-            Arc::new(SizeMatcher::new(parse_op(op)?, *value)),
-            MatcherMeta {
-                comparator: "size".into(),
-                target: match scope {
-                    Scope::Meta => "meta".into(),
-                    Scope::Stream => "stream".into(),
-                    Scope::HttpBody => "body".into(),
-                    Scope::HttpPath => "path".into(),
-                    Scope::HttpHeader => "header".into(),
+        Size { op, value, field_name } => {
+            let cmp = parse_op(op)?; // your existing parser
+            let m = SizeMatcher {
+                op: cmp,
+                value: *value,
+                field_name: field_name.clone(),
+            };
+
+            let target = match scope {
+                Scope::HttpHeader => format!("header:{}", field_name.as_deref().unwrap_or("?")),
+                Scope::HttpPath   => "path".into(),
+                Scope::HttpBody   => "body".into(),
+                Scope::Stream     => "stream".into(),
+                Scope::Meta       => "meta".into(),
+            };
+
+            Ok((
+                Arc::new(m),
+                MatcherMeta {
+                    comparator: format!("size {} {}", op, value),
+                    target,
+                    condition: format!("size {} {}", op, value),
                 },
-                condition: format!("size {} {}", op, value),
-            },
-        )),
+            ))
+        }
+
+
         PathRegex { pattern, .. } => Ok((
             Arc::new(crate::matcher::path_regex::PathRegex::new(
                 pattern,

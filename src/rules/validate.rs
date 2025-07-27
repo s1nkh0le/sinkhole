@@ -58,6 +58,11 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
                 m.id, m.scope
             ));
         }
+
+        let ctx = format!("markers[id={}]", m.id);
+        if let MatcherDef::Size { field_name, .. } = &m.matcher {
+            validate_size_field(m.scope, field_name.as_deref(), &ctx, &mut errs);
+        }
     }
 
     // ------------- iterate filters -------------
@@ -78,6 +83,11 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             ));
         }
 
+        let ctx = format!("filters[id={}]", f.id);
+        if let MatcherDef::Size { field_name, .. } = &f.matcher {
+            validate_size_field(f.scope, field_name.as_deref(), &ctx, &mut errs);
+        }
+
         // gating marker ids must exist
         for r in f.needed_markers_all.iter().chain(&f.needed_markers_any) {
             if !rs.markers.iter().any(|m| &m.id == r) {
@@ -87,4 +97,26 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
     }
 
     errs
+}
+
+
+
+fn validate_size_field(
+    scope: Scope,
+    field_name: Option<&str>,
+    ctx: &str,
+    errs: &mut Vec<String>,
+) {
+    match scope {
+        Scope::HttpHeader => {
+            if field_name.is_none() || field_name.unwrap().trim().is_empty() {
+                errs.push(format!("{ctx}.matcher.field_name: required for size on http.header"));
+            }
+        }
+        _ => {
+            if field_name.is_some() {
+                errs.push(format!("{ctx}.matcher.field_name: only allowed for scope=http.header"));
+            }
+        }
+    }
 }

@@ -35,6 +35,8 @@ pub enum MatcherDef {
     Size {
         op: String,   // ">", ">=", "<", "<=", "==", "!="
         value: usize,
+        #[serde(default)]
+        field_name: Option<String>, // e.g. For HttpHeader scope, indexes header names
     },
     #[serde(rename = "always")]
     Always { value: bool },

@@ -13,6 +13,15 @@ pub struct HttpMessage {
     pub truncated: bool,
 }
 
+impl HttpMessage {
+    pub fn header_value(&self, name: &str) -> Option<&str> {
+        let needle = name.to_ascii_lowercase();
+        self.headers.iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&needle))
+            .map(|(_, v)| v.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum HttpPart {
     Request,
