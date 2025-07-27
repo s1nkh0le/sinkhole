@@ -14,6 +14,8 @@ pub enum Scope {
     HttpPath,
     #[serde(rename = "http.body")]
     HttpBody,
+    #[serde(rename = "http.method")]
+    HttpMethod
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]

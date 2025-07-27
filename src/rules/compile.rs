@@ -9,6 +9,7 @@ use crate::matcher::size::{CmpOp, SizeMatcher};
 use crate::types::{Mode, RuleDirection, Scope};
 use anyhow::{Result, anyhow};
 use crate::matcher::always::AlwaysMatcher;
+use crate::matcher::method_regex::MethodRegexMatcher;
 
 pub struct CompiledMarker {
     pub id: String,
@@ -145,6 +146,7 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 Scope::HttpHeader => format!("header:{}", field_name.as_deref().unwrap_or("?")),
                 Scope::HttpPath   => "path".into(),
                 Scope::HttpBody   => "body".into(),
+                Scope::HttpMethod => "method".into(),
                 Scope::Stream     => "stream".into(),
                 Scope::Meta       => "meta".into(),
             };
@@ -158,8 +160,6 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 },
             ))
         }
-
-
         PathRegex { pattern, .. } => Ok((
             Arc::new(crate::matcher::path_regex::PathRegex::new(
                 pattern,
@@ -182,6 +182,19 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 condition: format!("regex /{}/", pattern),
             },
         )),
+        MethodRegex { pattern, case_sensitive } => {
+            let m = MethodRegexMatcher::new(pattern, *case_sensitive)
+                .map_err(|e| anyhow!("invalid regex for method: {}", e))?;
+
+            Ok((
+                Arc::new(m),
+                MatcherMeta {
+                    comparator: format!("regex /{}/", pattern),
+                    target: "method".into(),
+                    condition: format!("regex /{}/", pattern),
+                },
+            ))
+        }
         Always { value } => {
             Ok((
                 Arc::new(AlwaysMatcher::new(*value)),

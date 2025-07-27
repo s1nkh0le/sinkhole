@@ -31,6 +31,7 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             (Scope::HttpPath, PathRegex { .. }) => true,
             (Scope::HttpBody, BodyRegex { .. }) => true,
             (Scope::HttpHeader, HeaderRegex { .. }) => true,
+            (Scope::HttpMethod, MethodRegex { .. }) => true,
             // size is universal
             (_, Size { .. }) => true,
             // always is ok with every scope

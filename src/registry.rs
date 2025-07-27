@@ -61,7 +61,7 @@ pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
 
 fn default_scopes() -> HashSet<Scope> {
     use Scope::*;
-    [Meta, Stream, HttpHeader, HttpPath, HttpBody]
+    [Meta, Stream, HttpHeader, HttpPath, HttpBody, HttpMethod]
         .into_iter()
         .collect()
 }
