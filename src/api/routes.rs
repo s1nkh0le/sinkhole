@@ -48,6 +48,7 @@ pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) ->
         .route("/ports/{port}/config", get(get_config).put(put_config))
         .route("/ports/{port}/stats", get(get_stats))
         .route("/ports/{port}/ruleset", get(get_ruleset).put(put_ruleset))
+        .route("/ports/{port}/logs", get(get_logs))
         .with_state((cfg, registry, db_handle))
 }
 
@@ -349,6 +350,60 @@ pub async fn get_stats(
         ),
     }
 }
+
+#[derive(Deserialize)]
+struct LogsQuery {
+    since: Option<i64>,
+    limit: Option<usize>,
+    token: Option<String>,
+}
+
+pub async fn get_logs(
+    Path(port): Path<u16>,
+    Query(q): Query<LogsQuery>,
+    State((cfg, registry, db)): State<SharedState>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Err(e) = auth::check_token(q.token.as_deref(), &cfg) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"status":"error","errors":[e.to_string()]})),
+        );
+    }
+
+    // ensure port exists
+    if registry.get(&port).is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"status":"error","errors":["unknown port"]})),
+        );
+    }
+
+    let since = q.since.unwrap_or(0);
+    let limit = q.limit.unwrap_or(1000).min(10_000);
+
+    match crate::db::fetch_records_since(db.path.clone(), port, since, limit).await {
+        Ok((records, last_ts)) => {
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "status":"ok",
+                    "data": {
+                        "records": records,
+                        "next_since": last_ts
+                    }
+                })),
+            )
+        }
+        Err(e) => {
+            tracing::error!(?e, port, "fetch_logs failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"status":"error","errors":[e.to_string()]})),
+            )
+        }
+    }
+}
+
 
 // ---------------------------------------------------------
 async fn health() -> Json<serde_json::Value> {

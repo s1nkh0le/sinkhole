@@ -13,6 +13,7 @@ use crate::types::Scope;
 #[derive(Clone)]
 pub struct DbHandle {
     pub(crate) tx: mpsc::Sender<DbCmd>,
+    pub path: Arc<String>,
 }
 
 pub enum DbCmd {
@@ -35,8 +36,8 @@ pub struct HydratedConfig {
 }
 
 pub fn init_db(path: &str) -> Result<DbHandle> {
-
     {
+        // pre-init schema
         let conn = Connection::open(path)?;
         init_schema(&conn)?;
     }
@@ -44,6 +45,7 @@ pub fn init_db(path: &str) -> Result<DbHandle> {
     // spawn actor
     let (tx, mut rx) = mpsc::channel::<DbCmd>(20_000);
     let db_path = path.to_string();
+    let db_path_clone = db_path.clone();
 
     tokio::spawn(async move {
         // one blocking connection for the actor
@@ -91,7 +93,10 @@ pub fn init_db(path: &str) -> Result<DbHandle> {
         }
     });
 
-    Ok(DbHandle { tx })
+    Ok(DbHandle {
+        tx,
+        path: Arc::new(db_path_clone),
+    })
 }
 
 fn init_schema(conn: &Connection) -> Result<()> {
@@ -191,6 +196,40 @@ fn save_config_row(conn: &mut Connection, port: u16, json: &str, ts_ns: i64) -> 
     )?;
     Ok(())
 }
+
+pub async fn fetch_records_since(
+    path: Arc<String>,
+    port: u16,
+    since_ns: i64,
+    limit: usize,
+) -> Result<(Vec<serde_json::Value>, i64)> {
+    tokio::task::spawn_blocking(move || {
+        let conn = Connection::open(&*path)?;
+        let mut stmt = conn.prepare(
+            "SELECT timestamp_ns, json
+             FROM records
+             WHERE port = ? AND timestamp_ns > ?
+             ORDER BY timestamp_ns
+             LIMIT ?"
+        )?;
+        let mut rows = stmt.query(params![port as i64, since_ns, limit as i64])?;
+
+        let mut out = Vec::with_capacity(limit);
+        let mut last_ts = since_ns;
+        while let Some(row) = rows.next()? {
+            let ts: i64 = row.get(0)?;
+            let js: String = row.get(1)?;
+            let v: serde_json::Value = serde_json::from_str(&js)?;
+            out.push(v);
+            last_ts = ts;
+        }
+        Ok::<_, anyhow::Error>((out, last_ts))
+    })
+        .await?
+}
+
+
+
 
 // ---------- Hydration reads (blocking, call at startup) -----------------
 pub fn hydrate_registry(db_path: &str, registry: &crate::registry::PortRegistry) -> Result<()> {
