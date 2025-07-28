@@ -140,8 +140,6 @@ async fn handle_conn(
 }
 
 
-
-
 async fn pump<R, W>(
     conn_id: u64,
     inbound: bool,
@@ -204,7 +202,7 @@ where
         }
 
         // complete HTTP message?
-        if let Ok(Some((parsed, used))) = parse_http(&buf) {
+        if let Ok(Some((parsed, used))) = parse_http(&buf, inbound) {
             let raw = buf.split_to(used).freeze();
             if !process_chunk(&raw, Some(&parsed.msg)).await? && !debug {
                 return Ok(());
