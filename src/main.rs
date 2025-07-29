@@ -49,11 +49,18 @@ async fn main() -> Result<()> {
     info!(?cfg, "db connection initialized");
 
     observability::telemetry::init_db_sink(db_handle.clone());
-    hydrate_registry(&db_path, &registry)?;
 
-    for entry in registry.iter() {
-        dump_port_state(entry.value());
+
+    if cfg.hydrate_db {
+        info!("hydrating from db");
+        hydrate_registry(&db_path, &registry)?;
+        for entry in registry.iter() {
+            dump_port_state(entry.value());
+        }
+    } else {
+        info!("DB hydration disabled by TFILTER_HYDRATE_DB=false");
     }
+
 
 
     // spawn proxies

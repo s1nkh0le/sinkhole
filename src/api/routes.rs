@@ -1,6 +1,6 @@
 use axum::{routing::get, Router, };
 use crate::api::config::{get_config, list_ports, put_config};
-use crate::api::db::{db_health_ep, db_stats_ep};
+use crate::api::db::{db_clear_ep, db_health_ep, db_stats_ep};
 use crate::api::health::{health, version};
 use crate::api::logs::get_logs;
 use crate::api::ruleset::{get_ruleset, put_ruleset};
@@ -24,5 +24,6 @@ pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) ->
         .route("/ports/{port}/logs", get(get_logs))
         .route("/db/health", get(db_health_ep))
         .route("/db/stats",  get(db_stats_ep))
+        .route("/db/clear", get(db_clear_ep))
         .with_state((cfg, registry, db_handle))
 }

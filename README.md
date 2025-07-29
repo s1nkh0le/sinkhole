@@ -10,6 +10,7 @@ export TFILTER_UPSTREAM_HOST=127.0.0.1           # challenge host inside the sam
 export TFILTER_LISTEN_MAP=8080:80,8081:81        # "public1:upstream1,public2:upstream2,..."
 export TFILTER_CTRL_PORT=7000                    # port for apis exposed to the controller
 export TFILTER_DEBUG=true
+export TFILTER_HYDRATE_DB=true
 export TFILTER_BODY_LIMIT_BYTES=1048576          
 
 AUTH_SECRET="ss"

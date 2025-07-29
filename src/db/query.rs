@@ -182,3 +182,16 @@ pub async fn db_stats(path: Arc<String>) -> anyhow::Result<serde_json::Value> {
 }
 
 
+pub async fn clear_db(path: Arc<String>) -> anyhow::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        let conn = Connection::open(&*path)?;
+        conn.execute_batch(
+            "DELETE FROM records;
+             DELETE FROM port_rulesets;
+             DELETE FROM port_configs;
+             VACUUM;"
+        )?;
+        Ok::<_, anyhow::Error>(())
+    })
+        .await?
+}

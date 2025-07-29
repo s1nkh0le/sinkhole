@@ -36,6 +36,9 @@ struct RawConfig {
     /// TFILTER_BODY_LIMIT_BYTES
     #[serde(default)]
     pub body_limit_bytes: Option<usize>,
+
+    #[serde(default)]
+    pub hydrate_db: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +49,7 @@ pub struct Config {
     pub debug: bool,
     pub auth_hash: Option<String>,
     pub body_limit_bytes: usize,
+    pub hydrate_db: bool,
 }
 
 impl Config {
@@ -140,6 +144,7 @@ pub fn load() -> Result<Config> {
         debug: raw.debug,
         auth_hash: raw.auth_hash.map(|s| s.to_ascii_lowercase()),
         body_limit_bytes,
+        hydrate_db: raw.hydrate_db,
     })
 }
 
