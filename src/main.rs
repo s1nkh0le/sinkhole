@@ -9,6 +9,7 @@ use crate::{
 };
 use crate::db::actor::{init_db, DbCmd};
 use crate::db::hydration::hydrate_registry;
+use crate::observability::summary::dump_port_state;
 
 mod types;
 mod utils;
@@ -49,8 +50,10 @@ async fn main() -> Result<()> {
 
     observability::telemetry::init_db_sink(db_handle.clone());
     hydrate_registry(&db_path, &registry)?;
-    info!(?cfg, "loaded database configuration");
 
+    for entry in registry.iter() {
+        dump_port_state(entry.value());
+    }
 
 
     // spawn proxies
@@ -69,6 +72,8 @@ async fn main() -> Result<()> {
         .await
         .map_err(|e| anyhow!("unable to bind control API on address {bind}: '{e}'"))?;
     info!("control API listening on {}", bind);
+
+
 
     // graceful shutdown
     let shutdown = async move {

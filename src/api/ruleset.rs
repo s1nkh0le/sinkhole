@@ -8,6 +8,7 @@ use tracing::{error, info};
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::db::actor::DbCmd;
+use crate::observability::summary::{dump_port_state};
 use crate::rules;
 use crate::rules::CompiledRuleSet;
 
@@ -104,6 +105,7 @@ pub async fn put_ruleset(
         }
     };
 
+    // Print ruleset log
     info!(
         port,
         version,
@@ -117,6 +119,9 @@ pub async fn put_ruleset(
 
     pr.raw_ruleset.store(Arc::new(body));
     pr.compiled.store(Arc::new(compiled));
+
+    // Log port state
+    dump_port_state(&*pr);
 
     let _ = db.tx.try_send(DbCmd::SaveRuleset {
         port,
