@@ -10,6 +10,7 @@ use crate::types::{Mode, RuleDirection, Scope};
 use anyhow::{Result, anyhow};
 use crate::matcher::always::AlwaysMatcher;
 use crate::matcher::method_regex::MethodRegexMatcher;
+use crate::matcher::status_regex::StatusRegexMatcher;
 
 pub struct CompiledMarker {
     pub id: String,
@@ -134,6 +135,18 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 condition: format!("regex /{}/", pattern),
             },
         )),
+        StatusRegex { pattern, case_sensitive } => {
+            let m = StatusRegexMatcher::new(pattern, *case_sensitive)
+                .map_err(|e| anyhow!("invalid status regex: {}", e))?;
+            Ok((
+                Arc::new(m),
+                MatcherMeta {
+                    comparator: format!("regex /{}/", pattern),
+                    target: "status".into(),
+                    condition: format!("regex /{}/", pattern),
+                },
+            ))
+        }
         Size { op, value, field_name } => {
             let cmp = parse_op(op)?; // your existing parser
             let m = SizeMatcher {
@@ -143,10 +156,11 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
             };
 
             let target = match scope {
-                Scope::HttpHeader => format!("header:{}", field_name.as_deref().unwrap_or("?")),
+                Scope::HttpHeader => format!("headers[{}]", field_name.as_deref().unwrap_or("?")),
                 Scope::HttpPath   => "path".into(),
                 Scope::HttpBody   => "body".into(),
                 Scope::HttpMethod => "method".into(),
+                Scope::HttpStatus => "status".into(),
                 Scope::Stream     => "stream".into(),
                 Scope::Meta       => "meta".into(),
             };

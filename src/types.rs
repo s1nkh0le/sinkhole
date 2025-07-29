@@ -15,7 +15,9 @@ pub enum Scope {
     #[serde(rename = "http.body")]
     HttpBody,
     #[serde(rename = "http.method")]
-    HttpMethod
+    HttpMethod,
+    #[serde(rename = "http.status")]
+    HttpStatus,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
@@ -38,14 +40,14 @@ impl Decision {
 #[serde(rename_all = "lowercase")]
 pub enum MatchStatus { Satisfied, NotSatisfied, Skipped, Error }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode { Blacklist, WhitelistAll, WhitelistAny }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Direction { Inbound, Outbound }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleDirection { Inbound, Outbound, Both }
 

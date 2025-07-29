@@ -44,3 +44,4 @@ pub mod header_regex;
 pub mod size;
 pub mod always;
 pub mod method_regex;
+pub mod status_regex;

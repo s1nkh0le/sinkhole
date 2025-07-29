@@ -37,6 +37,12 @@ pub enum MatcherDef {
         #[serde(default)]
         case_sensitive: bool,
     },
+    #[serde(rename = "status_regex")]
+    StatusRegex {
+        pattern: String,
+        #[serde(default)]
+        case_sensitive: bool,
+    },
     #[serde(rename = "size")]
     Size {
         op: String,   // ">", ">=", "<", "<=", "==", "!="

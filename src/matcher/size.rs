@@ -32,6 +32,7 @@ impl Matcher for SizeMatcher {
             Scope::HttpBody => inp.http.map(|h| h.body.len()).unwrap_or(0),
             Scope::HttpPath => inp.http.and_then(|h| h.path.as_ref()).map(|p| p.len()).unwrap_or(0),
             Scope::HttpMethod => inp.http.and_then(|h| h.method.as_ref()).map(|p| p.len()).unwrap_or(0),
+            Scope::HttpStatus => inp.http.and_then(|h| h.status.as_ref()).map(|p| p.to_string().len()).unwrap_or(0),
             Scope::HttpHeader => {
                 // if header scope, field_name must be provided
                 if let Some(ref name) = self.field_name {

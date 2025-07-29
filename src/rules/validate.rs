@@ -1,5 +1,5 @@
 use super::model::*;
-use crate::types::Scope;
+use crate::types::{Direction, RuleDirection, Scope};
 use std::collections::HashSet;
 
 // ---------------------------------------------
@@ -32,10 +32,14 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             (Scope::HttpBody, BodyRegex { .. }) => true,
             (Scope::HttpHeader, HeaderRegex { .. }) => true,
             (Scope::HttpMethod, MethodRegex { .. }) => true,
-            // size is universal
+            (Scope::HttpStatus, StatusRegex { .. }) => true,
+
+            // Size is universal, except when checking the status code
+            (Scope::HttpStatus, Size { .. }) => false,
             (_, Size { .. }) => true,
-            // always is ok with every scope
-            (_, Always { .. }) => true,   // allow on any scope
+
+            // always is ok with any scope
+            (_, Always { .. }) => true,
             _ => false,
         }
     }
@@ -60,6 +64,15 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             ));
         }
 
+        // ---- forbid inbound status scope -------------------------------
+        if (m.scope == Scope::HttpStatus && m.direction == RuleDirection::Inbound) {
+            errs.push(format!(
+                "markers[id={}].direction inbound not allowed with scope http.status",
+                m.id
+            ));
+        }
+
+
         let ctx = format!("markers[id={}]", m.id);
         if let MatcherDef::Size { field_name, .. } = &m.matcher {
             validate_size_field(m.scope, field_name.as_deref(), &ctx, &mut errs);
@@ -81,6 +94,13 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             errs.push(format!(
                 "filters[id={}].matcher type doesn't match scope {:?}",
                 f.id, f.scope
+            ));
+        }
+
+        if (f.scope == Scope::HttpStatus && f.direction == RuleDirection::Inbound) {
+            errs.push(format!(
+                "filters[id={}].direction inbound not allowed with scope http.status",
+                f.id
             ));
         }
 
