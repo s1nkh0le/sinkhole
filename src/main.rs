@@ -35,25 +35,28 @@ async fn main() -> Result<()> {
 
     info!("starting tfilter...");
 
+    // Config (from env)
     let cfg = config::load()?;
-    info!(?cfg, "loaded environment configuration");
+    info!("effective env config: {}", serde_json::to_string(&cfg)?);
 
     let registry = registry::build_registry(&cfg)?;
-    info!("registry built (ports: {})", cfg.ports.len());
+    info!("registry built, port mappings: [{}]", cfg.ports
+        .iter()
+        .map(|b| b.to_string())
+        .collect::<Vec<_>>()
+        .join(", "));
 
 
-
-    let db_path = std::env::var("TFILTER_DB_PATH").unwrap_or_else(|_| "tfilter.db".into());
-    let db_handle = init_db(&db_path)?;
+    // Database
+    let db_handle = init_db(&cfg.db_path)?;
     let db_for_shutdown = db_handle.clone();
-    info!(?cfg, "db connection initialized");
+    info!("db connection established");
 
     observability::telemetry::init_db_sink(db_handle.clone());
 
-
     if cfg.hydrate_db {
-        info!("hydrating from db");
-        hydrate_registry(&db_path, &registry)?;
+        info!("hydrating from db...");
+        hydrate_registry(&cfg.db_path, &registry)?;
         for entry in registry.iter() {
             dump_port_state(entry.value());
         }

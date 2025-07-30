@@ -10,11 +10,11 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, error, trace, warn};
 use crate::config::Config;
 
-static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
-    std::env::var("TFILTER_AUTH_HASH")
-        .ok()
-        .map(|s| s.to_ascii_lowercase())
-});
+// static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
+//     std::env::var("TFILTER_AUTH_HASH")
+//         .ok()
+//         .map(|s| s.to_ascii_lowercase())
+// });
 
 /// Verifies the token (SHA‑256 hex compare) against `AUTH_HASH`.
 /// Returns `Ok(())` when:

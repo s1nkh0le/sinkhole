@@ -1,15 +1,21 @@
 use anyhow::{anyhow, Context, Result};
-use serde::Deserialize;
-use std::{collections::HashSet, net::SocketAddr, str::FromStr};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashSet, fmt, net::SocketAddr, str::FromStr};
 use tracing::{debug, info, warn};
 
 const DEFAULT_CTRL_PORT: u16 = 7000;
 const DEFAULT_BODY_LIMIT: usize = 1_048_576; // 1MB
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PortBinding {
     pub public: u16,
     pub upstream: u16,
+}
+
+impl fmt::Display for PortBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}->{}", self.public, self.upstream)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -39,9 +45,12 @@ struct RawConfig {
 
     #[serde(default)]
     pub hydrate_db: bool,
+
+    #[serde(default = "default_db_path")]
+    pub db_path: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Config {
     pub upstream_host: String,
     pub ports: Vec<PortBinding>,
@@ -50,6 +59,7 @@ pub struct Config {
     pub auth_hash: Option<String>,
     pub body_limit_bytes: usize,
     pub hydrate_db: bool,
+    pub db_path: String,
 }
 
 impl Config {
@@ -59,6 +69,7 @@ impl Config {
 }
 
 fn default_ctrl_port() -> u16 { DEFAULT_CTRL_PORT }
+fn default_db_path() -> String { "tfilter.db".into() }
 
 // ---------------------------------------------------------------------
 // Public loader
@@ -145,6 +156,7 @@ pub fn load() -> Result<Config> {
         auth_hash: raw.auth_hash.map(|s| s.to_ascii_lowercase()),
         body_limit_bytes,
         hydrate_db: raw.hydrate_db,
+        db_path: raw.db_path,
     })
 }
 
