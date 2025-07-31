@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
 
     // Init sinks
     sinks::init_all(&cfg, db_handle.clone());
-    
+
 
     // spawn proxies
     let proxy_cfg = cfg.clone();

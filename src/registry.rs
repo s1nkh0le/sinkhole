@@ -29,7 +29,6 @@ pub struct PortRuntime {
     pub hex_color: ArcSwapOption<String>,
 }
 
-/// Key = public port
 pub type PortRegistry = DashMap<u16, Arc<PortRuntime>>;
 
 pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
@@ -61,7 +60,7 @@ pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
 
 fn default_scopes() -> HashSet<Scope> {
     use Scope::*;
-    [Meta, Stream, HttpHeader, HttpPath, HttpBody, HttpMethod]
+    [Meta, Stream, HttpHeader, HttpPath, HttpBody, HttpMethod, HttpStatus, Timing]
         .into_iter()
         .collect()
 }

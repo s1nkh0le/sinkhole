@@ -298,7 +298,10 @@ fn meta_target_to_scope(t: &str) -> Scope {
         "meta" => Scope::Meta,
         "stream" => Scope::Stream,
         "body" => Scope::HttpBody,
+        "status" => Scope::HttpStatus,
         "path" => Scope::HttpPath,
+        "method" => Scope::HttpMethod,
+        "timing" => Scope::Timing,
         s if s.starts_with("header") => Scope::HttpHeader,
         _ => Scope::Stream,
     }

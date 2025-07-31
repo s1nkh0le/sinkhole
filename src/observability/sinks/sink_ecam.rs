@@ -3,6 +3,7 @@ use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use strum_macros::Display;
 use tracing::error;
 use tracing::warn;
 use crate::observability::sinks;
@@ -10,19 +11,28 @@ use crate::utils::now_ns;
 
 const MAX_ECAM_EVENTS: usize = 2_000;
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Display)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Warn,
     Error,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Debug, Serialize, Display)]
+pub enum NetworkOrigin {
+    Filter,
+    ClientToFilter(u16),
+    ServerToFilter(u16),
+}
+
+#[derive(Debug, Clone, Serialize, Display)]
 pub enum Origin {
     Global,
+    Configuration,
+    Network(NetworkOrigin),
     Port(u16),
     Matcher { port: u16, filter_id: String },
-    Db,
+    DB,
     Telemetry,
 }
 
@@ -75,8 +85,8 @@ pub fn record(
     msg: impl Into<String>,
     data: Option<serde_json::Value>,
 ) {
-    let log_stdout = sinks::TARGETS.sinks_stdout.load(Ordering::Relaxed);;
-    let push_sink = sinks::TARGETS.sinks_emit.load(Ordering::Relaxed);;
+    let log_stdout = sinks::TARGETS.sinks_stdout.load(Ordering::Relaxed);
+    let push_sink = sinks::TARGETS.sinks_emit.load(Ordering::Relaxed);
     
     if (!log_stdout && !push_sink) {
         return;

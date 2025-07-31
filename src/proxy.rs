@@ -11,15 +11,17 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
+use crate::observability::sinks::sink_ecam::NetworkOrigin::{ClientToFilter, Filter};
+use crate::observability::sinks::sink_ecam::{NetworkOrigin, Origin, Severity};
+use crate::observability::sinks::{sink_ecam, sink_telemetry};
 use crate::{
     config::{Config, PortBinding},
     engine::dispatcher::{MessageCtx, evaluate as eval_rules},
     http::parse_http,
     registry::{PortRegistry, PortRuntime},
-    types::{Decision},
+    types::Decision,
     utils::now_ns,
 };
-use crate::observability::sinks::sink_telemetry;
 
 static CONN_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -32,10 +34,11 @@ pub async fn run_all_ports(cfg: Config, registry: PortRegistry) -> Result<()> {
 
         tokio::spawn(async move {
             if let Err(e) = run_proxy_for_port(cfg_clone, reg_clone, pb).await {
-                tracing::error!(
-                    error=?e,
-                    "proxy for port {} failed",
-                    pb_clone.public
+                sink_ecam::record(
+                    Severity::Error,
+                    Origin::Network(Filter),
+                    format!("proxy for port {} failed. error={}", pb_clone.public, e),
+                    None,
                 );
             }
         });
@@ -43,7 +46,6 @@ pub async fn run_all_ports(cfg: Config, registry: PortRegistry) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 pub(crate) async fn run_proxy_for_port(
     cfg: Config,
     registry: PortRegistry,
@@ -52,7 +54,16 @@ pub(crate) async fn run_proxy_for_port(
     let bind_addr = SocketAddr::from(([0, 0, 0, 0], pb.public));
     let listener = TcpListener::bind(bind_addr)
         .await
-        .map_err(|e| anyhow!("unable to spawn proxy on address {bind_addr}: '{e}'"))?;
+        .map_err(|e| {
+            sink_ecam::record(
+                Severity::Error,
+                Origin::Network(ClientToFilter(pb.public)),
+                format!("unable to spawn proxy on address {bind_addr}: '{e}'"),
+                None,
+            );
+
+            anyhow!("unable to spawn proxy on address {bind_addr}: '{e}'")
+        })?;
 
     tracing::info!(
         "proxy listening on {} → {}:{}",
@@ -87,27 +98,30 @@ pub(crate) async fn run_proxy_for_port(
                     )
                     .await
                     {
-                        tracing::error!(
-                            conn_id,
-                            public_port,
-                            upstream_port,
-                            error = %e,
-                            "error in handle_conn(conn_id={}, client=..., client_addr={}, upstream_host={}, upstream_port={}, public_port={})",
-                            conn_id,
-                            client_addr,
-                            upstream_host,
-                            upstream_port,
-                            public_port,
+                        sink_ecam::record(
+                            Severity::Error,
+                            Origin::Network(ClientToFilter(pb.public)),
+                            format!(
+                                "error in handle_conn(conn_id={}, client=..., client_addr={}, upstream_host={}, upstream_port={}, public_port={}), error={}",
+                                conn_id, client_addr, upstream_host, upstream_port, public_port, e
+                            ),
+                            None,
                         );
                     }
                 });
             }
             Err(e) => {
-                tracing::error ! (
-                error = % e,
-                "listener.accept failed on {} → stopping proxy",
-                bind_addr
+                sink_ecam::record(
+                    Severity::Error,
+                    Origin::Network(ClientToFilter(pb.public)),
+                    format!(
+                        "[port={}] listener.accept failed on {} | stopping proxy. error={}",
+                        pb.public, bind_addr, e
+                    ),
+                    None,
                 );
+
+                // TODO should we just break or restart the proxy?
                 break;
             }
         }
@@ -130,18 +144,22 @@ async fn handle_conn(
     let mut server = match TcpStream::connect(&upstream_addr).await {
         Ok(s) => {
             tracing::debug!(
-                "[conn_id={}] connected to upstream | filter:{} -> {}", conn_id, public_port, upstream_addr
+                "[conn_id={}] connected to upstream | filter@{} -> service@{}",
+                conn_id,
+                public_port,
+                upstream_addr
             );
             s
         }
         Err(e) => {
-            tracing::warn!(
-                conn_id,
-                public_port,
-                upstream_port,
-                upstream = %upstream_addr,
-                error = %e,
-                "failed to connect to upstream, dropping client connection"
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::Network(NetworkOrigin::ServerToFilter(upstream_port)),
+                format!(
+                    "[conn_id={}] failed to connect to upstream at {} | closing client connection as well. error={}",
+                    conn_id, upstream_addr, e
+                ),
+                None,
             );
             return Ok(()); // swallow the error, so our spawn logger won’t trigger
         }
@@ -230,7 +248,7 @@ where
 
             let compiled = port_rt.compiled.load();
             let (decision, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
-            
+
             sink_telemetry::record(&rec);
 
             // ---- log & maybe forward -----------------------------------------
@@ -276,7 +294,7 @@ where
         // complete HTTP message?
         if let Ok(Some((parsed, used))) = parse_http(&buf, inbound) {
             let raw = buf.split_to(used).freeze();
-            if !process_chunk(&raw, Some(&parsed.msg)).await? && !debug {
+            if !process_chunk(&raw, Some(&parsed.msg)).await? {
                 return Ok(());
             }
             continue;
@@ -285,7 +303,7 @@ where
         // buffer too large? evaluate as raw stream
         if buf.len() > 8192 {
             let raw = buf.split().freeze();
-            if !process_chunk(&raw, None).await? && !debug {
+            if !process_chunk(&raw, None).await? {
                 return Ok(());
             }
         }

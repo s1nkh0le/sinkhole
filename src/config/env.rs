@@ -2,6 +2,8 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fmt, net::SocketAddr, str::FromStr};
 use tracing::{debug, info, warn};
+use crate::observability::sinks::sink_ecam;
+use crate::observability::sinks::sink_ecam::{Origin, Severity};
 
 const DEFAULT_CTRL_PORT: u16 = 7000;
 const DEFAULT_BODY_LIMIT: usize = 1_048_576; // 1MB
@@ -78,12 +80,11 @@ impl Config {
 fn default_ctrl_port() -> u16 { DEFAULT_CTRL_PORT }
 fn default_db_path() -> String { "tfilter.db".into() }
 
-// ---------------------------------------------------------------------
-// Public loader
-// ---------------------------------------------------------------------
+const ENV_PREFIX: &'static str = "TFILTER_";
+
 pub fn load() -> Result<Config> {
     // Load from env
-    let raw: RawConfig = envy::prefixed("TFILTER_")
+    let raw: RawConfig = envy::prefixed(ENV_PREFIX)
         .from_env()
         .context("Failed to parse environment variables")?;
 
@@ -142,6 +143,13 @@ pub fn load() -> Result<Config> {
 
     if !errs.is_empty() {
         let joined = errs.join("; ");
+
+        sink_ecam::record(
+            Severity::Error, Origin::Configuration,
+            format!("errors: {}", joined),
+            None
+        );
+            
         return Err(anyhow!(joined));
     }
 
@@ -151,8 +159,13 @@ pub fn load() -> Result<Config> {
         debug = raw.debug,
         "configuration validated"
     );
+    
     if raw.auth_hash.is_none() {
-        warn!("AUTH disabled: TFILTER_AUTH_HASH not set");
+        sink_ecam::record(
+            Severity::Warn, Origin::Configuration,
+            format!("AUTH disabled: TFILTER_AUTH_HASH is not set"),
+            None
+        )
     }
 
     Ok(Config {
