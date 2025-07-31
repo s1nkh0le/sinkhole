@@ -163,7 +163,7 @@ pub fn load() -> Result<Config> {
     if raw.auth_hash.is_none() {
         sink_ecam::record(
             Severity::Warn, Origin::Configuration,
-            format!("AUTH disabled: TFILTER_AUTH_HASH is not set"),
+            "AUTH disabled: TFILTER_AUTH_HASH is not set".to_string(),
             None
         )
     }

@@ -1,5 +1,5 @@
 use super::model::*;
-use crate::types::{Direction, RuleDirection, Scope};
+use crate::types::{RuleDirection, Scope};
 use std::collections::HashSet;
 
 // ---------------------------------------------
@@ -69,7 +69,7 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
         }
 
         // ---- forbid inbound status scope -------------------------------
-        if (m.scope == Scope::HttpStatus && m.direction == RuleDirection::Inbound) {
+        if m.scope == Scope::HttpStatus && m.direction == RuleDirection::Inbound {
             errs.push(format!(
                 "markers[id={}].direction inbound not allowed with scope http.status",
                 m.id
@@ -106,7 +106,7 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             ));
         }
 
-        if (f.scope == Scope::HttpStatus && f.direction == RuleDirection::Inbound) {
+        if f.scope == Scope::HttpStatus && f.direction == RuleDirection::Inbound {
             errs.push(format!(
                 "filters[id={}].direction inbound not allowed with scope http.status",
                 f.id

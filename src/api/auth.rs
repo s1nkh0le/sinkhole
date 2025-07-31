@@ -4,10 +4,12 @@
 //! If `AUTH_HASH` env is **unset** ➜ auth is **disabled** (allows CTF
 //! quick‑start).
 
-use anyhow::{anyhow, Result};
+use crate::config::Config;
+use crate::observability::sinks::sink_ecam;
+use crate::observability::sinks::sink_ecam::{Origin, Severity};
+use anyhow::{Result, anyhow};
 use sha2::{Digest, Sha256};
 use tracing::{error, trace, warn};
-use crate::config::Config;
 
 // static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
 //     std::env::var("TFILTER_AUTH_HASH")
@@ -22,8 +24,12 @@ use crate::config::Config;
 ///   * token is present **and** hashes to the same value.
 pub fn check_token(token_opt: Option<&str>, config: &Config) -> Result<()> {
     let Some(expected_hex) = config.auth_hash.as_ref() else {
-        // auth disabled
-        warn!("AUTH_HASH is not set, auth disabled, allowing control action");
+        sink_ecam::record(
+            Severity::Warn,
+            Origin::Security,
+            "AUTH_HASH is not set, auth disabled | allowing control action",
+            None,
+        );
         return Ok(());
     };
 
@@ -38,7 +44,13 @@ pub fn check_token(token_opt: Option<&str>, config: &Config) -> Result<()> {
         trace!("auth ok");
         Ok(())
     } else {
-        error!("auth failed: bad token, calculated_hex={} != {}=expected_hex, token={}", &calc_hex, expected_hex, token);
+        sink_ecam::record(
+            Severity::Error,
+            Origin::Security,
+            format!("authentication failed: bad token | calculated_hex={} != {}=expected_hex, token={}", &calc_hex, expected_hex, token),
+            None,
+        );
+
         Err(anyhow!("unauthorized"))
     }
 }

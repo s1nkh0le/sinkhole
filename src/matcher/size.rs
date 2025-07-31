@@ -1,4 +1,3 @@
-use tracing::error;
 use crate::matcher::types::CmpOp;
 use super::{MatchInput, MatchOutputCore, Matcher};
 use crate::types::{MatchStatus, Scope};

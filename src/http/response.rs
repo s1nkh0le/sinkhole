@@ -18,7 +18,7 @@ pub fn try_parse_response(buf: &[u8]) -> anyhow::Result<Option<(ParsedHttp, usiz
     let header_end = status.unwrap();
 
     let code = match resp.code {
-        Some(c) => c as u16,
+        Some(c) => c,
         None => return Ok(None),
     };
     let reason = resp.reason.unwrap_or("").to_string();

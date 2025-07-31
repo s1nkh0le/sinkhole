@@ -1,4 +1,3 @@
-use std::fmt::format;
 use crate::matcher::{MatchInput, MatchOutputCore, Matcher};
 use crate::matcher::types::CmpOp;
 use crate::types::MatchStatus;

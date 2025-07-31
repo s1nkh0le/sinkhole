@@ -1,9 +1,11 @@
-use std::sync::Arc;
-use rusqlite::{params, Connection};
-use tokio::sync::mpsc;
-use tracing::{error, info};
 use crate::db::schema::init_schema;
 use crate::observability::eval_record::EvaluationRecord;
+use crate::observability::sinks::sink_ecam;
+use crate::observability::sinks::sink_ecam::{Origin, Severity};
+use rusqlite::{Connection, params};
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct DbHandle {
@@ -13,8 +15,17 @@ pub struct DbHandle {
 
 pub enum DbCmd {
     InsertRecord(EvaluationRecord),
-    SaveRuleset { port: u16, version: String, json: String, ts_ns: i64 },
-    SaveConfig  { port: u16, json: String, ts_ns: i64 },
+    SaveRuleset {
+        port: u16,
+        version: String,
+        json: String,
+        ts_ns: i64,
+    },
+    SaveConfig {
+        port: u16,
+        json: String,
+        ts_ns: i64,
+    },
     Shutdown,
 }
 
@@ -36,6 +47,7 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
 
         // buffers
         let mut rec_buf: Vec<EvaluationRecord> = Vec::with_capacity(512);
+
         loop {
             tokio::select! {
                 Some(cmd) = rx.recv() => {
@@ -44,18 +56,33 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                             rec_buf.push(rec);
                             if rec_buf.len() >= 512 {
                                 if let Err(e) = flush_records(&mut conn, &mut rec_buf) {
-                                    error!(?e, "flush_records failed");
+                                    sink_ecam::record(
+                                        Severity::Error,
+                                        Origin::DB,
+                                        format!("[init_db()] flush_records() failed, error={}", e),
+                                        None,
+                                    );
                                 }
                             }
                         }
                         DbCmd::SaveRuleset { port, version, json, ts_ns } => {
                             if let Err(e) = save_ruleset_row(&mut conn, port, &version, &json, ts_ns) {
-                                error!(?e, port, "save_ruleset failed");
+                                sink_ecam::record(
+                                    Severity::Error,
+                                    Origin::DB,
+                                    format!("[init_db()] save_ruleset_row() failed, error={}", e),
+                                    None,
+                                );
                             }
                         }
                         DbCmd::SaveConfig { port, json, ts_ns } => {
                             if let Err(e) = save_config_row(&mut conn, port, &json, ts_ns) {
-                                error!(?e, port, "save_config failed");
+                                sink_ecam::record(
+                                    Severity::Error,
+                                    Origin::DB,
+                                    format!("[init_db()] save_config() failed, error={}", e),
+                                    None,
+                                );
                             }
                         }
                         DbCmd::Shutdown => {
@@ -68,7 +95,12 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                 _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
                     if !rec_buf.is_empty() {
                         if let Err(e) = flush_records(&mut conn, &mut rec_buf) {
-                            error!(?e, "periodic flush failed");
+                            sink_ecam::record(
+                                Severity::Error,
+                                Origin::DB,
+                                format!("[init_db()] periodic flush_records() failed, error={}", e),
+                                None,
+                            );
                         }
                     }
                 }
@@ -87,7 +119,7 @@ fn flush_records(conn: &mut Connection, buf: &mut Vec<EvaluationRecord>) -> anyh
     {
         let mut stmt = tx.prepare(
             "INSERT INTO records (timestamp_ns, port, inbound, decision, json)
-             VALUES (?,?,?,?,?)"
+             VALUES (?,?,?,?,?)",
         )?;
         for rec in buf.drain(..) {
             let json = serde_json::to_string(&rec)?;
@@ -105,7 +137,13 @@ fn flush_records(conn: &mut Connection, buf: &mut Vec<EvaluationRecord>) -> anyh
     Ok(())
 }
 
-fn save_ruleset_row(conn: &mut Connection, port: u16, version: &str, json: &str, ts_ns: i64) -> anyhow::Result<()> {
+fn save_ruleset_row(
+    conn: &mut Connection,
+    port: u16,
+    version: &str,
+    json: &str,
+    ts_ns: i64,
+) -> anyhow::Result<()> {
     conn.execute(
         "INSERT INTO port_rulesets (port, version, json, updated_at_ns)
          VALUES (?, ?, ?, ?)
@@ -118,10 +156,13 @@ fn save_ruleset_row(conn: &mut Connection, port: u16, version: &str, json: &str,
 fn save_config_row(conn: &mut Connection, port: u16, json: &str, ts_ns: i64) -> anyhow::Result<()> {
     // Extract small fields for convenience? We can defer; json has all.
     let v: serde_json::Value = serde_json::from_str(json)?;
-    let name      = v.get("name").and_then(|x| x.as_str());
-    let comment   = v.get("comment").and_then(|x| x.as_str());
+    let name = v.get("name").and_then(|x| x.as_str());
+    let comment = v.get("comment").and_then(|x| x.as_str());
     let hex_color = v.get("hex_color").and_then(|x| x.as_str());
-    let scopes_j  = v.get("enabled_scopes").unwrap_or(&serde_json::Value::Null).to_string();
+    let scopes_j = v
+        .get("enabled_scopes")
+        .unwrap_or(&serde_json::Value::Null)
+        .to_string();
 
     conn.execute(
         "INSERT INTO port_configs (port, name, comment, hex_color, enabled_scopes_json, updated_at_ns)
@@ -143,4 +184,3 @@ fn save_config_row(conn: &mut Connection, port: u16, json: &str, ts_ns: i64) -> 
     )?;
     Ok(())
 }
-

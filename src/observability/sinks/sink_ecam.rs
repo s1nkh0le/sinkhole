@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,21 +11,21 @@ use crate::utils::now_ns;
 
 const MAX_ECAM_EVENTS: usize = 2_000;
 
-#[derive(Debug, Clone, Copy, Serialize, Display)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Display)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Warn,
     Error,
 }
 
-#[derive(Clone, Debug, Serialize, Display)]
+#[derive(Clone, Debug, Serialize, Deserialize, Display)]
 pub enum NetworkOrigin {
     Filter,
     ClientToFilter(u16),
     ServerToFilter(u16),
 }
 
-#[derive(Debug, Clone, Serialize, Display)]
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
 pub enum Origin {
     Global,
     Configuration,
@@ -33,10 +33,12 @@ pub enum Origin {
     Port(u16),
     Matcher { port: u16, filter_id: String },
     DB,
+    API,
     Telemetry,
+    Security
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EcamEvent {
     pub ts_ns: i64,
     pub severity: Severity,
@@ -88,7 +90,7 @@ pub fn record(
     let log_stdout = sinks::TARGETS.sinks_stdout.load(Ordering::Relaxed);
     let push_sink = sinks::TARGETS.sinks_emit.load(Ordering::Relaxed);
     
-    if (!log_stdout && !push_sink) {
+    if !log_stdout && !push_sink {
         return;
     }
     
@@ -100,14 +102,14 @@ pub fn record(
         data,
     };
 
-    if (log_stdout) {
+    if log_stdout {
         match ev.severity {
-            Severity::Warn => warn!(?ev.origin, "{}", ev.msg),
-            Severity::Error => error!(?ev.origin, "{}", ev.msg),
+            Severity::Warn => warn!("{}", ev.msg),
+            Severity::Error => error!("{}", ev.msg),
         }
     }
 
-    if (push_sink) {
+    if push_sink {
         ECAM_SINK.push(ev);
     }
 }

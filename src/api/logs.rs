@@ -3,10 +3,11 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
-use tracing::error;
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::db;
+use crate::observability::sinks::sink_ecam;
+use crate::observability::sinks::sink_ecam::{Origin, Severity};
 
 #[derive(Deserialize, Debug)]
 pub struct LogsQuery {
@@ -20,7 +21,9 @@ pub struct LogsQuery {
     pub token: Option<String>,
 }
 
-/// GET /ports/{port}/logs
+
+///     API: `GET /ports/{port}/logs`
+///     method: `get_logs`
 pub async fn get_logs(
     Path(port): Path<u16>,
     Query(q): Query<LogsQuery>,
@@ -36,10 +39,14 @@ pub async fn get_logs(
 
     // ensure port exists
     if registry.get(&port).is_none() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"status":"error","errors":["unknown port"]})),
+        sink_ecam::record(
+            Severity::Warn,
+            Origin::API,
+            format!("[GET /ports/{port}/logs, get_logs()]: port not found"),
+            None,
         );
+
+        return (StatusCode::NOT_FOUND, Json(json!({"status":"error","errors":["unknown port"]})));
     }
 
     // ---- sanity checks -------------------------------------------------
@@ -90,10 +97,14 @@ pub async fn get_logs(
     }
 
     if !errs.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"status":"error","errors": errs})),
+        sink_ecam::record(
+            Severity::Warn,
+            Origin::API,
+            format!("[GET /ports/{port}/logs, get_logs()]: errors while preparing query: {}", errs.join(", ")),
+            None,
         );
+
+        return (StatusCode::BAD_REQUEST, Json(json!({"status":"error","errors": errs})));
     }
 
     match db::query::fetch_records_filtered(
@@ -107,20 +118,32 @@ pub async fn get_logs(
         q.dir.as_deref(),
         q.reason.as_deref(),
     ).await {
-        Ok((records, last_ts)) => {
+        Ok((mut records, _last_ts_from_db)) => {
+            let next_since = records
+                .last()
+                .and_then(|r| r.get("timestamp_ns").and_then(|v| v.as_i64()))
+                .map(|ts| ts + 1)
+                .unwrap_or(since);
+
             (
                 StatusCode::OK,
                 Json(json!({
-                    "status":"ok",
+                    "status": "ok",
                     "data": {
                         "records": records,
-                        "next_since": last_ts
+                        "next_since": next_since
                     }
                 })),
             )
         }
         Err(e) => {
-            error!(?e, port, "fetch_records_filtered failed");
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!("[GET /ports/{port}/logs, get_logs()]: database query failed: error={}", e),
+                None,
+            );
+
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"status":"error","errors":[e.to_string()]})),

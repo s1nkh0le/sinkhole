@@ -19,7 +19,7 @@ pub struct HydratedConfig {
 }
 
 
-
+//noinspection RsUnwrap
 pub fn hydrate_registry(db_path: &str, registry: &crate::registry::PortRegistry) -> anyhow::Result<()> {
     let ports: Vec<u16> = registry.iter().map(|e| e.binding.public).collect();
     let data = hydrate_for_ports(db_path, &ports)?;

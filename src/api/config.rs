@@ -9,6 +9,8 @@ use tracing::info;
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::db::actor::DbCmd;
+use crate::observability::sinks::sink_ecam;
+use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use crate::types::Scope;
 
 #[derive(Deserialize)]
@@ -32,12 +34,12 @@ pub struct PortInfo {
 
 
 
-// ---------------------------------------------------------
-// GET /ports  (list)
-// ---------------------------------------------------------
+
+///     API: `GET /ports`
+///     method: `list_ports`
 pub async fn list_ports(
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, db)): State<SharedState>,
+    State((cfg, registry, _db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (
@@ -73,12 +75,12 @@ pub async fn list_ports(
         });
     }
 
-    (StatusCode::OK, Json(json!({"status":"ok","data":list})))
+    (StatusCode::OK, Json(json!({"status":"ok", "data":list})))
 }
 
-// ---------------------------------------------------------
-// GET /ports/{port}/config
-// ---------------------------------------------------------
+
+///     API: `GET /ports/{port}/config`
+///     method: `get_config`
 pub async fn get_config(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
@@ -111,16 +113,22 @@ pub async fn get_config(
 
             (StatusCode::OK, Json(json!({"status":"ok","data":info})))
         }
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"status":"error","errors":["unknown port"]})),
-        ),
+        None => {
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!("[GET /ports/{port}/config, get_config()]: port not found"),
+                None,
+            );
+
+            (StatusCode::NOT_FOUND, Json(json!({"status":"error","errors":["unknown port"]})))
+        },
     }
 }
 
-// ---------------------------------------------------------
-// PUT /ports/{port}/config
-// ---------------------------------------------------------
+
+///     API: `PUT /ports/{port}/config`
+///     method: `put_config`
 pub async fn put_config(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
@@ -137,6 +145,13 @@ pub async fn put_config(
     let pr = match registry.get(&port) {
         Some(p) => p,
         None => {
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!("[PUT /ports/{port}/config, put_config()]: rejecting config | port not found"),
+                None,
+            );
+
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({"status":"error","errors":["unknown port"]})),
@@ -145,17 +160,34 @@ pub async fn put_config(
     };
 
     // --- enabled_scopes validation ---------------------------------------
-    if let Some(ref scopes) = body.enabled_scopes {
-        if scopes.is_empty() {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"status":"error","errors":["enabled_scopes cannot be empty"]})),
+    match body.enabled_scopes {
+        Some(ref scopes) => {
+            if scopes.is_empty() {
+                sink_ecam::record(
+                    Severity::Warn,
+                    Origin::API,
+                    format!("[PUT /ports/{port}/config, put_config()]: rejecting config | no enabled scopes"),
+                    None,
+                );
+
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"status":"error","errors":["enabled_scopes cannot be empty"]})),
+                );
+            }
+            let mut guard = pr.enabled_scopes.write().unwrap();
+            guard.clear();
+            guard.extend(scopes.iter().cloned());
+            info!(port, scopes=?scopes, "enabled scopes updated");
+        }
+        None => {
+            sink_ecam::record(
+                Severity::Error,
+                Origin::API,
+                format!("[PUT /ports/{port}/config, put_config()]: rejecting config | enabled scopes no found in body"),
+                None,
             );
         }
-        let mut guard = pr.enabled_scopes.write().unwrap();
-        guard.clear();
-        guard.extend(scopes.iter().cloned());
-        info!(port, scopes=?scopes, "enabled scopes updated");
     }
 
     // --- name/comment -----------------------------------------------------

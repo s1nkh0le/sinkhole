@@ -156,7 +156,7 @@ async fn handle_conn(
                 Severity::Warn,
                 Origin::Network(NetworkOrigin::ServerToFilter(upstream_port)),
                 format!(
-                    "[conn_id={}] failed to connect to upstream at {} | closing client connection as well. error={}",
+                    "[conn_id={:04}] failed to connect to upstream at {} | closing client connection as well. error=\"{}\"",
                     conn_id, upstream_addr, e
                 ),
                 None,

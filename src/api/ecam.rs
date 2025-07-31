@@ -1,40 +1,61 @@
-use axum::{extract::Query, Json};
-use std::collections::HashMap;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
-use serde::Serialize;
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::observability::sinks::sink_ecam::{EcamEvent, ECAM_SINK};
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::{extract::Query, Json};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-#[derive(Serialize)]
-pub struct ApiResp<T> {
+
+#[derive(Debug, Serialize)]
+pub struct ApiRespEcam<'a> {
     pub status: &'static str,
-    pub data: T,
+    pub data: &'a [EcamEvent],
+    pub next_since: i64,
 }
 
-impl<T> ApiResp<T> {
-    pub fn ok(data: T) -> Self { Self { status: "ok", data } }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EcamRequest {
+    since: Option<String>,
+    token: Option<String>,
 }
 
-
-/// GET /ecam?token=…&since=<ns>
+///     API: `GET /ecam`
+///     method: `get_ecam`
 pub async fn get_ecam(
-    Path(_port): Path<u16>,
-    Query(q): Query<HashMap<String, String>>,
+    Query(q): Query<EcamRequest>,
     State((cfg, _registry, _db)): State<SharedState>,
-) -> (StatusCode, Json<ApiResp<Vec<EcamEvent>>>) {
-    // ── auth ────────────────────────────────────────────
-    if let Err(_e) = auth::check_token(q.get("token").map(String::as_str), &cfg) {
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Err(e) = auth::check_token(q.token.as_deref(), &cfg) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(ApiResp { status: "error", data: vec![] }),
+            Json(json!({"status":"error","errors":[e.to_string()]})),
         );
     }
 
-    // ── param ───────────────────────────────────────────
-    let since_ns = q.get("since").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+    // ── params ─────────────────────────────────────────
+    let since_ns = q.since.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
 
-    let events = ECAM_SINK.snapshot(since_ns);
-    (StatusCode::OK, Json(ApiResp::ok(events)))
+    // grab a **Vec** snapshot
+    let mut events = ECAM_SINK.snapshot(since_ns);
+
+    // sort ascending
+    events.sort_by_key(|e| e.ts_ns);
+
+    // compute next_since = (max + 1)  or stick to caller’s since_ns
+    let next_since = events.last().map(|e| e.ts_ns + 1).unwrap_or(since_ns);
+
+    // we need the events to live long enough for the Json body.
+    //   Box::leak makes a &'static [EcamEvent]; cheap because we immediately drop the Box after response is built
+    let leaked: &'static [EcamEvent] = Box::leak(events.into_boxed_slice());
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "ok",
+            "data": leaked,
+            "next_since": next_since
+        })),
+    )
 }

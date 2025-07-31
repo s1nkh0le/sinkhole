@@ -1,20 +1,21 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
-use axum::Json;
-use serde_json::json;
-use tracing::{error, info};
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::db::actor::DbCmd;
-use crate::observability::summary::{dump_port_state};
+use crate::observability::sinks::sink_ecam;
+use crate::observability::sinks::sink_ecam::{Origin, Severity};
+use crate::observability::summary::dump_port_state;
 use crate::rules;
 use crate::rules::CompiledRuleSet;
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use serde_json::json;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::{error, info};
 
-// ---------------------------------------------------------
-// GET /ruleset
-// ---------------------------------------------------------
+///     API: `GET /ports/{port}/ruleset`
+///     method: `get_ruleset`
 pub async fn get_ruleset(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
@@ -27,29 +28,39 @@ pub async fn get_ruleset(
         );
     }
 
-    if let Some(pr) = registry.get(&port) {
-        let rs_arc = pr.raw_ruleset.load();
-        let version = rules::calc_version(&rs_arc).unwrap_or_default();
-        (
-            StatusCode::OK,
-            Json(json!({"status":"ok","data":{"version":version,"ruleset": rs_arc.as_ref() }})),
-        )
-    } else {
-        (
-            StatusCode::NOT_FOUND,
-            Json(json!({"status":"error","errors":["unknown port"]})),
-        )
+    match registry.get(&port) {
+        Some(pr) => {
+            let rs_arc = pr.raw_ruleset.load();
+            let version = rules::calc_version(&rs_arc).unwrap_or_default();
+
+            (
+                StatusCode::OK,
+                Json(json!({"status":"ok","data":{"version":version,"ruleset": rs_arc.as_ref() }})),
+            )
+        }
+        None => {
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!("[GET /ports/{port}/ruleset, get_ruleset()]: port not found"),
+                None,
+            );
+
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status":"error","errors":["unknown port"]})),
+            )
+        }
     }
 }
 
-// ---------------------------------------------------------
-// PUT /ruleset
-// ---------------------------------------------------------
+///     API: `PUT /ports/{port}/ruleset`
+///     method: `put_ruleset`
 pub async fn put_ruleset(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
     State((cfg, registry, db)): State<SharedState>,
-    Json(body): Json<crate::rules::RuleSetRaw>,
+    Json(body): Json<rules::RuleSetRaw>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (
@@ -75,7 +86,15 @@ pub async fn put_ruleset(
     drop(scopes_guard);
 
     if !errs.is_empty() {
-        error!(?errs, "ruleset validation failed");
+        sink_ecam::record(
+            Severity::Warn,
+            Origin::API,
+            format!(
+                "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | ruleset validation failed, error=s{}", errs.join(", ")
+            ),
+            None,
+        );
+
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"status":"error","errors": errs })),
@@ -86,7 +105,15 @@ pub async fn put_ruleset(
     let version = match rules::calc_version(&body) {
         Ok(v) => v,
         Err(e) => {
-            error!(?e, "version calc failed");
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!(
+                    "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | version calc failed, error={e}"
+                ),
+                None,
+            );
+
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"status":"error","errors":[e.to_string()]})),
@@ -97,7 +124,15 @@ pub async fn put_ruleset(
     let compiled: CompiledRuleSet = match rules::compile::compile_ruleset(&body) {
         Ok(c) => c,
         Err(e) => {
-            error!(?e, "compilation failed");
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!(
+                    "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | compilation failed, error={e}"
+                ),
+                None,
+            );
+
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"status":"error","errors":[e.to_string()]})),
@@ -114,7 +149,7 @@ pub async fn put_ruleset(
         "ruleset accepted"
     );
 
-    let raw_str    = serde_json::to_string(&body).unwrap();
+    let raw_str = serde_json::to_string(&body).unwrap();
     let version_db = version.clone();
 
     pr.raw_ruleset.store(Arc::new(body));
