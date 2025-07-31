@@ -1,6 +1,5 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result};
 use bytes::Bytes;
-use httparse::{Header, Request, Response};
 use crate::http::request::try_parse_request;
 use crate::http::response::try_parse_response;
 

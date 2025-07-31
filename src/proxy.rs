@@ -15,11 +15,11 @@ use crate::{
     config::{Config, PortBinding},
     engine::dispatcher::{MessageCtx, evaluate as eval_rules},
     http::parse_http,
-    observability::telemetry::emit_record,
     registry::{PortRegistry, PortRuntime},
-    types::{Decision, Direction},
+    types::{Decision},
     utils::now_ns,
 };
+use crate::observability::sinks::sink_telemetry;
 
 static CONN_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -61,33 +61,56 @@ pub(crate) async fn run_proxy_for_port(
         pb.upstream
     );
 
-    while let Ok((client, client_addr)) = listener.accept().await {
-        let conn_id = CONN_ID.fetch_add(1, Ordering::Relaxed);
-        let upstream_host = cfg.upstream_host.clone();
-        let upstream_port = pb.upstream;
-        let public_port = pb.public;
-        let debug = cfg.debug;
-        let port_rt = registry
-            .get(&public_port)
-            .expect("PortRuntime missing")
-            .clone();
+    loop {
+        match listener.accept().await {
+            Ok((client, client_addr)) => {
+                let conn_id = CONN_ID.fetch_add(1, Ordering::Relaxed);
+                let upstream_host = cfg.upstream_host.clone();
+                let upstream_port = pb.upstream;
+                let public_port = pb.public;
+                let debug = cfg.debug;
+                let port_rt = registry
+                    .get(&public_port)
+                    .expect("PortRuntime missing")
+                    .clone();
 
-        tokio::spawn(async move {
-            if let Err(e) = handle_conn(
-                conn_id,
-                client,
-                client_addr,
-                &upstream_host,
-                upstream_port,
-                public_port,
-                debug,
-                port_rt,
-            )
-            .await
-            {
-                tracing::warn!(conn_id, error=?e, "connection errored: [{} -> {}]", public_port, upstream_port);
+                tokio::spawn(async move {
+                    if let Err(e) = handle_conn(
+                        conn_id,
+                        client,
+                        client_addr,
+                        &upstream_host,
+                        upstream_port,
+                        public_port,
+                        debug,
+                        port_rt,
+                    )
+                    .await
+                    {
+                        tracing::error!(
+                            conn_id,
+                            public_port,
+                            upstream_port,
+                            error = %e,
+                            "error in handle_conn(conn_id={}, client=..., client_addr={}, upstream_host={}, upstream_port={}, public_port={})",
+                            conn_id,
+                            client_addr,
+                            upstream_host,
+                            upstream_port,
+                            public_port,
+                        );
+                    }
+                });
             }
-        });
+            Err(e) => {
+                tracing::error ! (
+                error = % e,
+                "listener.accept failed on {} → stopping proxy",
+                bind_addr
+                );
+                break;
+            }
+        }
     }
     Ok(())
 }
@@ -104,7 +127,25 @@ async fn handle_conn(
     port_rt: Arc<PortRuntime>,
 ) -> Result<()> {
     let upstream_addr = format!("{upstream_host}:{upstream_port}");
-    let mut server = TcpStream::connect(&upstream_addr).await?;
+    let mut server = match TcpStream::connect(&upstream_addr).await {
+        Ok(s) => {
+            tracing::debug!(
+                "[conn_id={}] connected to upstream | filter:{} -> {}", conn_id, public_port, upstream_addr
+            );
+            s
+        }
+        Err(e) => {
+            tracing::warn!(
+                conn_id,
+                public_port,
+                upstream_port,
+                upstream = %upstream_addr,
+                error = %e,
+                "failed to connect to upstream, dropping client connection"
+            );
+            return Ok(()); // swallow the error, so our spawn logger won’t trigger
+        }
+    };
 
     let server_addr = server
         .peer_addr()
@@ -189,22 +230,30 @@ where
 
             let compiled = port_rt.compiled.load();
             let (decision, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
-            emit_record(&rec);
+            
+            sink_telemetry::record(&rec);
 
             // ---- log & maybe forward -----------------------------------------
             if inbound {
                 tracing::trace!(
                     bytes = raw.len(),
                     ?decision,
-                    "processed inbound chunk: id={}/{}, client@{}:{} -> localhost:{}, ",
-                    conn_id, seq, src_addr.ip().to_string(), src_addr.port().to_string(), public_port
+                    "processed inbound  chunk: conn_id={}/seq={}, client@{}:{} -> filter:{} ",
+                    conn_id,
+                    seq,
+                    src_addr.ip().to_string(),
+                    src_addr.port().to_string(),
+                    public_port
                 );
             } else {
                 tracing::trace!(
                     bytes = raw.len(),
                     ?decision,
-                    "processed inbound chunk: id={}/{}, localhost:{} <- server@{}:{} ",
-                    conn_id, seq, upstream_port, src_addr.ip().to_string(), src_addr.port().to_string()
+                    "processed outbound chunk: conn_id={}/seq={}, filter <- service@{}:{} ",
+                    conn_id,
+                    seq,
+                    src_addr.ip().to_string(),
+                    src_addr.port().to_string()
                 );
             }
 

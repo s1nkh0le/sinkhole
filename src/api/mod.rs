@@ -6,3 +6,4 @@ mod ruleset;
 mod stats;
 mod logs;
 mod db;
+mod ecam;

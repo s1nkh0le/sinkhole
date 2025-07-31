@@ -1,4 +1,5 @@
 use sha2::{Digest, Sha256};
+use time::{format_description::FormatItem, macros::format_description, OffsetDateTime};
 
 pub fn sha256_hex(input: &[u8]) -> String {
     let mut hasher = Sha256::new();
@@ -13,4 +14,14 @@ pub fn now_ns() -> u128 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos()
+}
+
+pub fn ns_to_hms(ns_since_epoch: u128) -> String {
+    let signed_ns = i128::try_from(ns_since_epoch).map_err(|_| "timestamp out of range").unwrap(); // fixme
+
+    let dt = OffsetDateTime::from_unix_timestamp_nanos(signed_ns).expect("ns out of range");
+
+    static HMS: &[FormatItem<'_>] = format_description!("[hour]:[minute]:[second]");
+
+    dt.format(HMS).unwrap()
 }

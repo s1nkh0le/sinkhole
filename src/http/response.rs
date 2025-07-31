@@ -1,8 +1,8 @@
-use anyhow::{anyhow, Result};
-use bytes::{Bytes, BytesMut};
-use httparse::{Header, Request, Response};
-use crate::http::HttpMessage;
 use crate::http::parser::{content_length, HttpPart, ParsedHttp};
+use crate::http::HttpMessage;
+use anyhow::anyhow;
+use bytes::Bytes;
+use httparse::{Header, Response};
 
 pub fn try_parse_response(buf: &[u8]) -> anyhow::Result<Option<(ParsedHttp, usize)>> {
     let mut headers = [Header { name: "", value: &[] }; 64];

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use bytes::{Bytes, BytesMut};
+use bytes::{Bytes};
 use httparse::{Header, Request};
 use crate::http::HttpMessage;
 use crate::http::parser::{content_length, HttpPart, ParsedHttp};

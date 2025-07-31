@@ -9,6 +9,7 @@ use crate::{
     config::Config,
     registry::PortRegistry
 };
+use crate::api::ecam::get_ecam;
 use crate::db::actor::DbHandle;
 
 pub type SharedState = (Config, PortRegistry, DbHandle);
@@ -17,6 +18,7 @@ pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) ->
     Router::new()
         .route("/health", get(health))
         .route("/version", get(version))
+        .route("/ecam", get(get_ecam))
         .route("/ports", get(list_ports))
         .route("/ports/{port}/config", get(get_config).put(put_config))
         .route("/ports/{port}/stats", get(get_stats))

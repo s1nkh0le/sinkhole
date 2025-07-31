@@ -48,6 +48,11 @@ struct RawConfig {
 
     #[serde(default = "default_db_path")]
     pub db_path: String,
+
+    #[serde(default)]
+    pub sinks_stdout: Option<bool>,
+    #[serde(default)]
+    pub sinks_emit:   Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -60,6 +65,8 @@ pub struct Config {
     pub body_limit_bytes: usize,
     pub hydrate_db: bool,
     pub db_path: String,
+    pub sinks_stdout: bool,
+    pub sinks_emit: bool,
 }
 
 impl Config {
@@ -157,6 +164,8 @@ pub fn load() -> Result<Config> {
         body_limit_bytes,
         hydrate_db: raw.hydrate_db,
         db_path: raw.db_path,
+        sinks_stdout: raw.sinks_stdout.unwrap_or(true),
+        sinks_emit: raw.sinks_emit.unwrap_or(true),
     })
 }
 

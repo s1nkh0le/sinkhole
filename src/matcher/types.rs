@@ -1,6 +1,6 @@
-use strum_macros::Display;
+use std::fmt;
 
-#[derive(Clone, Copy, Debug, Display)]
+#[derive(Clone, Copy, Debug)]
 pub enum CmpOp { Lt, Le, Eq, Ne, Ge, Gt }
 
 impl CmpOp {
@@ -28,5 +28,19 @@ impl CmpOp {
             CmpOp::Ge => lhs >= rhs,
             CmpOp::Gt => lhs >  rhs,
         }
+    }
+}
+
+impl fmt::Display for CmpOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let sym = match self {
+            CmpOp::Lt => "<",
+            CmpOp::Le => "<=",
+            CmpOp::Eq => "==",
+            CmpOp::Ne => "!=",
+            CmpOp::Ge => ">=",
+            CmpOp::Gt => ">",
+        };
+        write!(f, "{}", sym)
     }
 }

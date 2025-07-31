@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use strum_macros::Display;
 
-pub type RuleId = String;
-
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Display)]
 pub enum Scope {
     #[serde(rename = "meta")]

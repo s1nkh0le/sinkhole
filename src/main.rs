@@ -3,10 +3,8 @@ use anyhow::{anyhow, Result};
 use tokio::{net::TcpListener, signal};
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
-
-use crate::{
-    proxy::run_all_ports,
-};
+use observability::sinks;
+use crate::proxy::run_all_ports;
 use crate::db::actor::{init_db, DbCmd};
 use crate::db::hydration::hydrate_registry;
 use crate::observability::summary::dump_port_state;
@@ -46,13 +44,10 @@ async fn main() -> Result<()> {
         .collect::<Vec<_>>()
         .join(", "));
 
-
     // Database
     let db_handle = init_db(&cfg.db_path)?;
     let db_for_shutdown = db_handle.clone();
     info!("db connection established");
-
-    observability::telemetry::init_db_sink(db_handle.clone());
 
     if cfg.hydrate_db {
         info!("hydrating from db...");
@@ -65,6 +60,9 @@ async fn main() -> Result<()> {
     }
 
 
+    // Init sinks
+    sinks::init_all(&cfg, db_handle.clone());
+    
 
     // spawn proxies
     let proxy_cfg = cfg.clone();

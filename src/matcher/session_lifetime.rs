@@ -2,7 +2,7 @@ use std::fmt::format;
 use crate::matcher::{MatchInput, MatchOutputCore, Matcher};
 use crate::matcher::types::CmpOp;
 use crate::types::MatchStatus;
-use crate::utils::now_ns;
+use crate::utils::{now_ns, ns_to_hms};
 
 pub struct SessionLifetimeMatcher {
     pub op:    CmpOp,
@@ -10,6 +10,7 @@ pub struct SessionLifetimeMatcher {
 }
 
 impl Matcher for SessionLifetimeMatcher {
+
     fn evaluate(&self, inp: &MatchInput) -> MatchOutputCore {
         let now = now_ns();
         let session_start = inp.ctx.conn_start_ns;
@@ -22,7 +23,9 @@ impl Matcher for SessionLifetimeMatcher {
             input:  format!("{:.6}", delta),
             matched: None,
             numeric: Some(delta),
-            comment: Some(format!("now: {}, session_start: {}, delta = {}, op: {}, threshold: {}", now, session_start, delta, self.op, self.value).into()),
+            comment: Some(format!("now_ns(): {}, conn_start_ns: {}; delta = {}, op: {}, threshold: {}",
+                                  ns_to_hms(now), ns_to_hms(session_start), delta, self.op, self.value).into()
+            ),
             flags: vec![],
             error: None,
         }
