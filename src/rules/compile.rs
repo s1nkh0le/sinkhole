@@ -5,12 +5,15 @@ use super::{
     version::calc_version,
 };
 use crate::matcher::Matcher;
-use crate::matcher::size::{CmpOp, SizeMatcher};
+use crate::matcher::size::{SizeMatcher};
 use crate::types::{Mode, RuleDirection, Scope};
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use crate::matcher::always::AlwaysMatcher;
 use crate::matcher::method_regex::MethodRegexMatcher;
+use crate::matcher::session_idle::SessionIdleMatcher;
+use crate::matcher::session_lifetime::SessionLifetimeMatcher;
 use crate::matcher::status_regex::StatusRegexMatcher;
+use crate::matcher::types::CmpOp;
 
 pub struct CompiledMarker {
     pub id: String,
@@ -160,8 +163,9 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 Scope::HttpPath   => "path".into(),
                 Scope::HttpBody   => "body".into(),
                 Scope::HttpMethod => "method".into(),
-                Scope::HttpStatus => "status".into(),
+                Scope::HttpStatus => "status".into(), // can't happen
                 Scope::Stream     => "stream".into(),
+                Scope::Timing     => "timing".into(), // can't happen
                 Scope::Meta       => "meta".into(),
             };
 
@@ -209,6 +213,30 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 },
             ))
         }
+        SessionLifetime { op, value } => {
+            let cmp = parse_op(op)?;
+            ensure_timing_scope(*scope, "session_lifetime")?;
+            Ok((
+                Arc::new(SessionLifetimeMatcher { op: cmp, value: *value }),
+                MatcherMeta {
+                    comparator: format!("timing {} {}s", op, value),
+                    target: "conn_lifetime".into(),
+                    condition: format!("timing {} {}s", op, value),
+                },
+            ))
+        }
+        SessionIdle { op, value } => {
+            let cmp = parse_op(op)?;
+            ensure_timing_scope(*scope, "session_idle")?;
+            Ok((
+                Arc::new(SessionIdleMatcher { op: cmp, value: *value }),
+                MatcherMeta {
+                    comparator: format!("idle {} {}s", op, value),
+                    target: "conn_idle".into(),
+                    condition: format!("idle {} {}s", op, value),
+                },
+            ))
+        }
         Always { value } => {
             Ok((
                 Arc::new(AlwaysMatcher::new(*value)),
@@ -232,6 +260,13 @@ fn ensure_scope(actual: &Scope, expected: Scope, mname: &str) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+fn ensure_timing_scope(scope: Scope, ctx: &str) -> Result<()> {
+    if scope != Scope::Timing {
+        bail!("{} matcher must use scope 'timing'", ctx);
+    }
+    Ok(())
 }
 
 fn parse_op(s: &str) -> Result<CmpOp> {

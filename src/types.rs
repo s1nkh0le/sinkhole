@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use strum_macros::Display;
 
 pub type RuleId = String;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Display)]
 pub enum Scope {
     #[serde(rename = "meta")]
     Meta,
@@ -18,6 +19,8 @@ pub enum Scope {
     HttpMethod,
     #[serde(rename = "http.status")]
     HttpStatus,
+    #[serde(rename = "timing")]
+    Timing,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]

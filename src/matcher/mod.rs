@@ -1,3 +1,4 @@
+use crate::engine::dispatcher::MessageCtx;
 use crate::types::{MatchStatus, Scope};
 
 pub struct MatchInput<'a> {
@@ -5,6 +6,7 @@ pub struct MatchInput<'a> {
     pub inbound: bool,
     pub http: Option<&'a crate::http::HttpMessage>,
     pub raw: &'a [u8],
+    pub ctx: &'a MessageCtx<'a>
 }
 
 #[derive(Clone, Debug)]
@@ -36,6 +38,7 @@ pub trait Matcher: Send + Sync {
     fn evaluate(&self, inp: &MatchInput) -> MatchOutputCore;
 }
 
+pub mod types;
 pub mod regex_core;
 pub mod stream_regex;
 pub mod path_regex;
@@ -45,3 +48,5 @@ pub mod size;
 pub mod always;
 pub mod method_regex;
 pub mod status_regex;
+pub mod session_lifetime;
+pub mod session_idle;

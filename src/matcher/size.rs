@@ -1,8 +1,7 @@
+use tracing::error;
+use crate::matcher::types::CmpOp;
 use super::{MatchInput, MatchOutputCore, Matcher};
 use crate::types::{MatchStatus, Scope};
-
-#[derive(Clone, Copy)]
-pub enum CmpOp { Lt, Le, Eq, Ne, Ge, Gt }
 
 pub struct SizeMatcher {
     pub(crate) op: CmpOp,
@@ -13,15 +12,9 @@ pub struct SizeMatcher {
 impl SizeMatcher {
     pub fn new(op: CmpOp, value: usize, field_name: Option<String>) -> Self { Self { op, value, field_name } }
 
+    #[inline]
     fn compare(&self, actual: usize) -> bool {
-        match self.op {
-            CmpOp::Lt => actual <  self.value,
-            CmpOp::Le => actual <= self.value,
-            CmpOp::Eq => actual == self.value,
-            CmpOp::Ne => actual != self.value,
-            CmpOp::Ge => actual >= self.value,
-            CmpOp::Gt => actual >  self.value,
-        }
+        self.op.eval_u64(actual as u64, self.value as u64)
     }
 }
 
@@ -32,19 +25,20 @@ impl Matcher for SizeMatcher {
             Scope::HttpBody => inp.http.map(|h| h.body.len()).unwrap_or(0),
             Scope::HttpPath => inp.http.and_then(|h| h.path.as_ref()).map(|p| p.len()).unwrap_or(0),
             Scope::HttpMethod => inp.http.and_then(|h| h.method.as_ref()).map(|p| p.len()).unwrap_or(0),
-            Scope::HttpStatus => inp.http.and_then(|h| h.status.as_ref()).map(|p| p.to_string().len()).unwrap_or(0),
             Scope::HttpHeader => {
                 // if header scope, field_name must be provided
                 if let Some(ref name) = self.field_name {
                     let val = inp
                         .http
-                        .and_then(|h| h.header_value(name)) // implement header_value(name) -> Option<&str>
+                        .and_then(|h| h.header_value(name))
                         .unwrap_or("");
                     val.len()
                 } else {
                     0
                 }
             }
+            Scope::HttpStatus => panic!(),
+            Scope::Timing => panic!(),
         };
 
         let ok = self.compare(len);

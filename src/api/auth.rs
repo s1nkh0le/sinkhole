@@ -5,9 +5,8 @@
 //! quick‑start).
 
 use anyhow::{anyhow, Result};
-use once_cell::sync::Lazy;
 use sha2::{Digest, Sha256};
-use tracing::{debug, error, trace, warn};
+use tracing::{error, trace, warn};
 use crate::config::Config;
 
 // static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {

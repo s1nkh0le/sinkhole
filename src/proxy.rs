@@ -1,10 +1,10 @@
 //! Bidirectional TCP proxy with rule evaluation.
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use bytes::BytesMut;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -13,9 +13,9 @@ use tokio::{
 
 use crate::{
     config::{Config, PortBinding},
-    engine::dispatcher::{evaluate as eval_rules, MessageCtx},
+    engine::dispatcher::{MessageCtx, evaluate as eval_rules},
     http::parse_http,
-    observability::{eval_record::EvaluationRecord, telemetry::emit_record},
+    observability::telemetry::emit_record,
     registry::{PortRegistry, PortRuntime},
     types::{Decision, Direction},
     utils::now_ns,
@@ -31,9 +31,7 @@ pub async fn run_all_ports(cfg: Config, registry: PortRegistry) -> Result<()> {
         let pb_clone = pb.clone(); // keep for log after move
 
         tokio::spawn(async move {
-            if let Err(e) =
-                run_proxy_for_port(cfg_clone, reg_clone, pb).await
-            {
+            if let Err(e) = run_proxy_for_port(cfg_clone, reg_clone, pb).await {
                 tracing::error!(
                     error=?e,
                     "proxy for port {} failed",
@@ -55,6 +53,7 @@ pub(crate) async fn run_proxy_for_port(
     let listener = TcpListener::bind(bind_addr)
         .await
         .map_err(|e| anyhow!("unable to spawn proxy on address {bind_addr}: '{e}'"))?;
+
     tracing::info!(
         "proxy listening on {} → {}:{}",
         bind_addr,
@@ -84,9 +83,9 @@ pub(crate) async fn run_proxy_for_port(
                 debug,
                 port_rt,
             )
-                .await
+            .await
             {
-                tracing::warn!(conn_id, error=?e, "connection errored");
+                tracing::warn!(conn_id, error=?e, "connection errored: [{} -> {}]", public_port, upstream_port);
             }
         });
     }
@@ -107,10 +106,14 @@ async fn handle_conn(
     let upstream_addr = format!("{upstream_host}:{upstream_port}");
     let mut server = TcpStream::connect(&upstream_addr).await?;
 
-    let server_addr = server.peer_addr().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap());
+    let server_addr = server
+        .peer_addr()
+        .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap());
 
     let (mut cr, mut cw) = client.split();
     let (mut sr, mut sw) = server.split();
+
+    let conn_start_ns = now_ns();
 
     let in_task = pump(
         conn_id,
@@ -122,6 +125,7 @@ async fn handle_conn(
         upstream_port,
         debug,
         port_rt.clone(),
+        conn_start_ns,
     );
     let out_task = pump(
         conn_id,
@@ -133,12 +137,12 @@ async fn handle_conn(
         upstream_port,
         debug,
         port_rt,
+        conn_start_ns,
     );
 
     let _ = tokio::try_join!(in_task, out_task)?;
     Ok(())
 }
-
 
 async fn pump<R, W>(
     conn_id: u64,
@@ -150,6 +154,7 @@ async fn pump<R, W>(
     upstream_port: u16,
     debug: bool,
     port_rt: Arc<PortRuntime>,
+    conn_start_ns: u128,
 ) -> Result<()>
 where
     R: AsyncReadExt + Unpin,
@@ -159,40 +164,58 @@ where
     let mut buf = BytesMut::with_capacity(8192);
 
     // helper closure --------------------------------------------------------
-    let mut process_chunk = async |raw: &[u8], http_opt: Option<&crate::http::HttpMessage>| -> Result<bool> {
-        // ---- build ctx & evaluate ----------------------------------------
-        let msg_ctx = MessageCtx {
-            conn_id,
-            seq,
-            inbound,
-            public_port,
-            upstream_port,
-            raw,
-            http: http_opt,
-            src_ip: &src_addr.ip().to_string(),
-            src_port: src_addr.port(),
+    let mut last_msg_ns = conn_start_ns;
+
+    let mut process_chunk =
+        async |raw: &[u8], http_opt: Option<&crate::http::HttpMessage>| -> Result<bool> {
+            let conn_now_ns = now_ns();
+
+            // ---- build ctx & evaluate ----------------------------------------
+            let msg_ctx = MessageCtx {
+                conn_id,
+                seq,
+                inbound,
+                public_port,
+                upstream_port,
+                raw,
+                http: http_opt,
+                src_ip: &src_addr.ip().to_string(),
+                src_port: src_addr.port(),
+                conn_start_ns: conn_start_ns,
+                conn_prev_msg_ns: conn_now_ns,
+            };
+
+            last_msg_ns = conn_now_ns;
+
+            let compiled = port_rt.compiled.load();
+            let (decision, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
+            emit_record(&rec);
+
+            // ---- log & maybe forward -----------------------------------------
+            if inbound {
+                tracing::trace!(
+                    bytes = raw.len(),
+                    ?decision,
+                    "processed inbound chunk: id={}/{}, client@{}:{} -> localhost:{}, ",
+                    conn_id, seq, src_addr.ip().to_string(), src_addr.port().to_string(), public_port
+                );
+            } else {
+                tracing::trace!(
+                    bytes = raw.len(),
+                    ?decision,
+                    "processed inbound chunk: id={}/{}, localhost:{} <- server@{}:{} ",
+                    conn_id, seq, upstream_port, src_addr.ip().to_string(), src_addr.port().to_string()
+                );
+            }
+
+            seq += 1;
+            if decision == Decision::Allow {
+                writer.write_all(raw).await?;
+                Ok(true)
+            } else {
+                Ok(false) // signal to stop
+            }
         };
-        let compiled = port_rt.compiled.load();
-        let (decision, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
-        emit_record(&rec);
-
-        // ---- log & maybe forward -----------------------------------------
-        tracing::trace!(
-            conn_id,
-            dir = if inbound { "inbound" } else { "outbound" },
-            bytes = raw.len(),
-            ?decision,
-            "processed chunk"
-        );
-
-        seq += 1;
-        if decision == Decision::Allow {
-            writer.write_all(raw).await?;
-            Ok(true)
-        } else {
-            Ok(false) // signal to stop
-        }
-    };
 
     // main read loop --------------------------------------------------------
     loop {

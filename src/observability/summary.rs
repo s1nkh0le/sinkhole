@@ -22,10 +22,18 @@ pub fn dump_port_state(rt: &Arc<PortRuntime>) {
         .map(|s| s.as_str())
         .unwrap_or("-");
 
+    let scopes = rt
+        .enabled_scopes
+        .read()
+        .expect("PortRuntime.enabled_scopes lock poisoned");
+
+    let scope_list = scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", ");
+
     debug!(
         port = rt.binding.public,
         upstream = rt.binding.upstream,
-        name,
+        name = name,
+        enabled_scopes = scope_list,
         version = compiled.version,
         markers = compiled.markers.len(),
         filters = compiled.filters.len(),
@@ -49,13 +57,11 @@ pub fn dump_port_state(rt: &Arc<PortRuntime>) {
     for f in &raw.filters {
         debug!(
             port = rt.binding.public,
-            id = %f.id,
             dir = ?f.direction,
             scope = ?f.scope,
             mode = ?f.mode,
-            enabled = f.enabled,
             matcher = %matcher_desc(&f.matcher),
-            "-> Filter",
+            "-> Filter(id={}, enabled={}): ", f.id, f.enabled,
         );
     }
 }
@@ -71,6 +77,8 @@ fn matcher_desc(m: &MatcherDef) -> String {
             format!("header_regex {}=/{} /", header_name, pattern),
         MethodRegex { pattern, .. }  => format!("method_regex /{}/", pattern),
         StatusRegex { pattern, .. }  => format!("status_regex /{}/", pattern),
+        SessionLifetime { value, op, .. }  => format!("session_lifetime /{} {}/", op, value),
+        SessionIdle { value, op, .. }  => format!("session_idle /{} {}/", op, value),
         Size { op, value, field_name } => {
             if let Some(h) = field_name {
                 format!("size {} {} (header:{})", op, value, h)

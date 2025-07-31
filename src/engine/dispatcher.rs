@@ -30,6 +30,9 @@ pub struct MessageCtx<'a> {
 
     pub src_ip: &'a str,
     pub src_port: u16,
+
+    pub conn_start_ns: u128,
+    pub conn_prev_msg_ns:   u128,
 }
 
 /// Main entry: evaluate all rules, return (Decision, EvaluationRecord)
@@ -241,6 +244,7 @@ fn build_match_input<'a>(msg: &'a MessageCtx, scope: Scope) -> MatchInput<'a> {
         inbound: msg.inbound,
         http: msg.http,
         raw: msg.raw,
+        ctx: msg
     }
 }
 

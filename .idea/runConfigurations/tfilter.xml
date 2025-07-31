@@ -8,6 +8,8 @@
       <env name="TFILTER_DEBUG" value="true" />
       <env name="TFILTER_LISTEN_MAP" value="8080:80,8081:81" />
       <env name="TFILTER_UPSTREAM_HOST" value="127.0.0.1" />
+      <env name="TFILTER_HYDRATE_DB" value="true" />
+      <env name="TFILTER_DB_PATH" value="tfilter.db" />
     </envs>
     <option name="emulateTerminal" value="true" />
     <option name="channel" value="DEFAULT" />

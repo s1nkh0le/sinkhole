@@ -1,7 +1,9 @@
 use crate::types::{Mode, RuleDirection, Scope};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-fn default_enabled() -> bool { true }
+fn default_enabled() -> bool {
+    true
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
@@ -45,11 +47,15 @@ pub enum MatcherDef {
     },
     #[serde(rename = "size")]
     Size {
-        op: String,   // ">", ">=", "<", "<=", "==", "!="
+        op: String, // ">", ">=", "<", "<=", "==", "!="
         value: usize,
         #[serde(default)]
         field_name: Option<String>, // e.g. For HttpHeader scope, indexes header names
     },
+    #[serde(rename = "session.lifetime")]
+    SessionLifetime { op: String, value: f64 },
+    #[serde(rename = "session.idle")]
+    SessionIdle { op: String, value: f64 },
     #[serde(rename = "always")]
     Always { value: bool },
 }

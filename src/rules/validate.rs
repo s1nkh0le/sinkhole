@@ -34,8 +34,12 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             (Scope::HttpMethod, MethodRegex { .. }) => true,
             (Scope::HttpStatus, StatusRegex { .. }) => true,
 
+            (Scope::Timing, SessionLifetime { .. }) => true,
+            (Scope::Timing, SessionIdle { .. })     => true,
+
             // Size is universal, except when checking the status code
             (Scope::HttpStatus, Size { .. }) => false,
+            (Scope::Timing, Size { .. }) => false,
             (_, Size { .. }) => true,
 
             // always is ok with any scope
@@ -72,6 +76,11 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             ));
         }
 
+        if matches!(m.matcher, MatcherDef::SessionLifetime { .. } | MatcherDef::SessionIdle { .. })
+            && m.direction != RuleDirection::Both
+        {
+            errs.push(format!("markers[id={}]: timing scope requires direction='both'", m.id));
+        }
 
         let ctx = format!("markers[id={}]", m.id);
         if let MatcherDef::Size { field_name, .. } = &m.matcher {
@@ -103,7 +112,13 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
                 f.id
             ));
         }
-
+        
+        if matches!(f.matcher, MatcherDef::SessionLifetime { .. } | MatcherDef::SessionIdle { .. })
+            && f.direction != RuleDirection::Both
+        {
+            errs.push(format!("filters[id={}]: timing scope requires direction='both'", f.id));
+        }
+        
         let ctx = format!("filters[id={}]", f.id);
         if let MatcherDef::Size { field_name, .. } = &f.matcher {
             validate_size_field(f.scope, field_name.as_deref(), &ctx, &mut errs);
