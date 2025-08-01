@@ -102,7 +102,7 @@ pub(crate) async fn run_proxy_for_port(
                             Severity::Error,
                             Origin::Network(ClientToFilter(pb.public)),
                             format!(
-                                "error in handle_conn(conn_id={}, client=..., client_addr={}, upstream_host={}, upstream_port={}, public_port={}), error={}",
+                                "error in handle_conn(conn_id={:04}, client=..., client_addr={}, upstream_host={}, upstream_port={}, public_port={}), error={}",
                                 conn_id, client_addr, upstream_host, upstream_port, public_port, e
                             ),
                             None,
@@ -144,7 +144,7 @@ async fn handle_conn(
     let mut server = match TcpStream::connect(&upstream_addr).await {
         Ok(s) => {
             tracing::debug!(
-                "[conn_id={}] connected to upstream | filter@{} -> service@{}",
+                "[conn_id={:04}] connected to upstream | filter@{} -> service@{}",
                 conn_id,
                 public_port,
                 upstream_addr
@@ -256,7 +256,7 @@ where
                 tracing::trace!(
                     bytes = raw.len(),
                     ?decision,
-                    "processed inbound  chunk: conn_id={}/seq={}, client@{}:{} -> filter:{} ",
+                    "processed inbound  chunk: conn_id={:04}/seq={}, client@{}:{} -> filter:{} ",
                     conn_id,
                     seq,
                     src_addr.ip().to_string(),
@@ -267,7 +267,7 @@ where
                 tracing::trace!(
                     bytes = raw.len(),
                     ?decision,
-                    "processed outbound chunk: conn_id={}/seq={}, filter <- service@{}:{} ",
+                    "processed outbound chunk: conn_id={:04}/seq={}, filter <- service@{}:{} ",
                     conn_id,
                     seq,
                     src_addr.ip().to_string(),

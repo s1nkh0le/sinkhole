@@ -28,6 +28,7 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
         use MatcherDef::*;
         match (scope, m) {
             (Scope::Stream, StreamRegex { .. }) => true,
+            
             (Scope::HttpPath, PathRegex { .. }) => true,
             (Scope::HttpBody, BodyRegex { .. }) => true,
             (Scope::HttpHeader, HeaderRegex { .. }) => true,
@@ -39,6 +40,7 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
 
             // Size is universal, except when checking the status code
             (Scope::HttpStatus, Size { .. }) => false,
+            (Scope::HttpMethod, Size { .. }) => false,
             (Scope::Timing, Size { .. }) => false,
             (_, Size { .. }) => true,
 

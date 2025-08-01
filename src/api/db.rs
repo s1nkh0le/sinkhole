@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
+use tracing::info;
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::db::query::{db_health, db_stats};
@@ -81,11 +82,17 @@ pub async fn db_clear_ep(
         );
     }
 
+    info!("received /db/clear request, clearing db..");
+
     match crate::db::query::clear_db(db.path.clone()).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(json!({"status":"ok"})),
-        ),
+        Ok(()) => {
+            info!("cleared db");
+
+            (
+                StatusCode::OK,
+                Json(json!({"status":"ok"})),
+            )
+        },
         Err(e) => {
             sink_ecam::record(
                 Severity::Error,

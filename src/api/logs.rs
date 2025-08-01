@@ -86,7 +86,7 @@ pub async fn get_logs(
 
     let limit = q.limit.unwrap_or(1000);
     if limit == 0 {
-        errs.push("limit must be > 0".to_string());
+        errs.push("limit must be >0".to_string());
     }
     let limit = limit.min(10_000);
 
