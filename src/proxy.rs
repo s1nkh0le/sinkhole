@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Result, anyhow};
+use axum::routing::trace;
 use bytes::BytesMut;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -176,7 +177,7 @@ async fn handle_conn(
 
     let in_task = pump(
         conn_id,
-        true,
+        true, /* Inbound, as in, coming from client -> filter -> server */
         &mut cr,
         &mut sw,
         client_addr,
@@ -188,7 +189,7 @@ async fn handle_conn(
     );
     let out_task = pump(
         conn_id,
-        false,
+        false, /* Outbound, as in, going to client <- filter <- server */
         &mut sr,
         &mut cw,
         server_addr,
@@ -203,6 +204,22 @@ async fn handle_conn(
     Ok(())
 }
 
+///
+/// # Arguments
+///
+/// * `conn_id`: TCP connection id
+/// * `inbound`: Whether the direction of traffic is from client to service (inbound), or from service to client (outbound)
+/// * `reader`: Client/Service reading buffer
+/// * `writer`: Service/Client writing buffer
+/// * `src_addr`: Address of entity sending data
+/// * `public_port`: External, public port of the filter proxy for clients
+/// * `upstream_port`: Internal, private port of the service, just used for forwarding
+/// * `debug`: Whether debugging is enabled
+/// * `port_rt`: Port runtime
+/// * `conn_start_ns`: Time (ns) at which this TCP connection has started
+///
+/// returns: Result<(), Error>
+///
 async fn pump<R, W>(
     conn_id: u64,
     inbound: bool,
@@ -288,8 +305,20 @@ where
     loop {
         let read_n = reader.read_buf(&mut buf).await?;
         if read_n == 0 {
+            if inbound {
+                tracing::trace!("[conn_id={:04}] connection closed by client", conn_id);
+            } else {
+                tracing::trace!("[conn_id={:04}] connection closed by service", conn_id);
+            }
             break; // EOF
         }
+
+        if inbound {
+            tracing::trace!("[conn_id={:04}] read {} bytes from client", conn_id, read_n);
+        } else {
+            tracing::trace!("[conn_id={:04}] read {} bytes from service", conn_id, read_n);
+        }
+
 
         // complete HTTP message?
         if let Ok(Some((parsed, used))) = parse_http(&buf, inbound) {
