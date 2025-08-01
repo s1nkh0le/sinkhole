@@ -11,12 +11,6 @@ use anyhow::{Result, anyhow};
 use sha2::{Digest, Sha256};
 use tracing::{error, trace, warn};
 
-// static AUTH_HASH: Lazy<Option<String>> = Lazy::new(|| {
-//     std::env::var("TFILTER_AUTH_HASH")
-//         .ok()
-//         .map(|s| s.to_ascii_lowercase())
-// });
-
 /// Verifies the token (SHA‑256 hex compare) against `AUTH_HASH`.
 /// Returns `Ok(())` when:
 ///   * `AUTH_HASH` is not set

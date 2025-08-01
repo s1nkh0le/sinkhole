@@ -22,26 +22,26 @@ impl fmt::Display for PortBinding {
 
 #[derive(Clone, Debug, Deserialize)]
 struct RawConfig {
-    /// TFILTER_UPSTREAM_HOST (required)
+    /// UPSTREAM_HOST (required)
     pub upstream_host: String,
 
-    /// TFILTER_LISTEN_MAP = "8080:80,8443:8000"
+    /// LISTEN_MAP = "8080:80,8443:8000"
     #[serde(default)]
     pub listen_map: String,
 
-    /// TFILTER_CTRL_PORT (default 7000)
+    /// CTRL_PORT (default 7000)
     #[serde(default = "default_ctrl_port")]
     pub ctrl_port: u16,
 
-    /// TFILTER_DEBUG = true/false
+    /// DEBUG = true/false
     #[serde(default)]
     pub debug: bool,
 
-    /// TFILTER_AUTH_HASH = hex sha256
+    /// AUTH_HASH = hex sha256
     #[serde(default)]
     pub auth_hash: Option<String>,
 
-    /// TFILTER_BODY_LIMIT_BYTES
+    /// BODY_LIMIT_BYTES
     #[serde(default)]
     pub body_limit_bytes: Option<usize>,
 
@@ -78,9 +78,9 @@ impl Config {
 }
 
 fn default_ctrl_port() -> u16 { DEFAULT_CTRL_PORT }
-fn default_db_path() -> String { "tfilter.db".into() }
+fn default_db_path() -> String { "sinkhole.db".into() }
 
-const ENV_PREFIX: &'static str = "TFILTER_";
+const ENV_PREFIX: &'static str = "SINKHOLE_FILTER_";
 
 pub fn load() -> Result<Config> {
     // Load from env
@@ -94,14 +94,14 @@ pub fn load() -> Result<Config> {
     let mut errs = Vec::new();
 
     if raw.upstream_host.trim().is_empty() {
-        errs.push("TFILTER_UPSTREAM_HOST is empty".to_string());
+        errs.push(format!("{}_UPSTREAM_HOST is empty", ENV_PREFIX));
     }
 
     // listen_map parsing
     let ports = match parse_listen_map(&raw.listen_map) {
         Ok(v) => v,
         Err(e) => {
-            errs.push(format!("TFILTER_LISTEN_MAP: {}", e));
+            errs.push(format!("{}_LISTEN_MAP: {}", ENV_PREFIX, e));
             Vec::new()
         }
     };
@@ -122,8 +122,7 @@ pub fn load() -> Result<Config> {
 
     if ports.iter().any(|p| p.public == raw.ctrl_port) {
         errs.push(format!(
-            "CTRL_PORT ({}) collides with a public port",
-            raw.ctrl_port
+            "{}_CTRL_PORT ({}) collides with a public port", ENV_PREFIX, raw.ctrl_port
         ));
     }
 
@@ -131,14 +130,14 @@ pub fn load() -> Result<Config> {
     if let Some(ref h) = raw.auth_hash {
         let hex_ok = h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit());
         if !hex_ok {
-            errs.push("TFILTER_AUTH_HASH must be 64 hex chars (SHA-256)".into());
+            errs.push(format!("{}_AUTH_HASH must be 64 hex chars (SHA-256)", ENV_PREFIX));
         }
     }
 
     // BODY_LIMIT_BYTES
     let body_limit_bytes = raw.body_limit_bytes.unwrap_or(DEFAULT_BODY_LIMIT);
     if body_limit_bytes == 0 {
-        errs.push("TFILTER_BODY_LIMIT_BYTES must be > 0".into());
+        errs.push(format!("{}_BODY_LIMIT_BYTES must be > 0", ENV_PREFIX));
     }
 
     if !errs.is_empty() {
@@ -163,7 +162,7 @@ pub fn load() -> Result<Config> {
     if raw.auth_hash.is_none() {
         sink_ecam::record(
             Severity::Warn, Origin::Configuration,
-            "AUTH disabled: TFILTER_AUTH_HASH is not set".to_string(),
+            format!("AUTH disabled: {}_AUTH_HASH is not set", ENV_PREFIX),
             None
         )
     }
@@ -187,7 +186,7 @@ pub fn load() -> Result<Config> {
 // ---------------------------------------------------------------------
 fn parse_listen_map(s: &str) -> Result<Vec<PortBinding>> {
     if s.trim().is_empty() {
-        return Err(anyhow!("TFILTER_LISTEN_MAP is empty"));
+        return Err(anyhow!("{}_LISTEN_MAP is empty", ENV_PREFIX));
     }
     let mut out = Vec::new();
     for pair in s.split(',') {
@@ -205,7 +204,7 @@ fn parse_listen_map(s: &str) -> Result<Vec<PortBinding>> {
         out.push(PortBinding { public, upstream });
     }
     if out.is_empty() {
-        return Err(anyhow!("TFILTER_LISTEN_MAP produced no valid bindings"));
+        return Err(anyhow!("{}_LISTEN_MAP produced no valid bindings", ENV_PREFIX));
     }
     Ok(out)
 }

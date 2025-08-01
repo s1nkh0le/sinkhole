@@ -254,10 +254,10 @@ Return current row counts & on-disk size.
 
 ## Environment flags impacting the API
 
-| Variable              | Default   | Effect                                                |
-|-----------------------|-----------|-------------------------------------------------------|
-| `TFILTER_AUTH_HASH`   | *(unset)* | Enables token authentication when set.                |
-| `TFILTER_SINK_STDOUT` | `true`    | When `false`, suppresses sink emission to stdout.     |
-| `TFILTER_SINK_EMIT`   | `true`    | When `false`, disables internal fan-out to DB / ECAM. |
+| Variable               | Default   | Effect                                                |
+|------------------------|-----------|-------------------------------------------------------|
+| `SINKHOLE_AUTH_HASH`   | *(unset)* | Enables token authentication when set.                |
+| `SINKHOLE_SINK_STDOUT` | `true`    | When `false`, suppresses sink emission to stdout.     |
+| `SINKHOLE_SINK_EMIT`   | `true`    | When `false`, disables internal fan-out to DB / ECAM. |
 
 ---

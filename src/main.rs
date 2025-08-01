@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    info!("starting tfilter...");
+    info!("starting sinkhole filter...");
 
     // Config (from env)
     let cfg = config::load()?;
@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
             dump_port_state(entry.value());
         }
     } else {
-        info!("DB hydration disabled by TFILTER_HYDRATE_DB=false");
+        info!("DB hydration is disabled");
     }
 
 
@@ -102,6 +102,6 @@ async fn main() -> Result<()> {
 
     // ensure proxy task is done (it will exit when listeners stop accepting)
     let _ = proxy_handle.await;
-    info!("tfilter exited successfully");
+    info!("filter exited successfully");
     Ok(())
 }
