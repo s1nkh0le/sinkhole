@@ -1,0 +1,39 @@
+use serde::{Deserialize, Serialize};
+use strum_macros::Display;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Display)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Warn,
+    Error,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Display)]
+pub enum NetworkOrigin {
+    Filter,
+    ClientToFilter(u16),
+    ServerToFilter(u16),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Display)]
+pub enum Origin {
+    Global,
+    Configuration,
+    Network(NetworkOrigin),
+    Port(u16),
+    Matcher { port: u16, filter_id: String },
+    DB,
+    API,
+    Telemetry,
+    Security
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EcamEvent {
+    pub ts_ns: i64,
+    pub severity: Severity,
+    pub origin: Origin,
+    pub msg: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+}

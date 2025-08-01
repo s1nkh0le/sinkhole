@@ -1,0 +1,12 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1"
+strum_macros = "0.27.2"
+sha2 = "0.11.0-rc.0"
+time = { version = "0.3.41", features = ["macros", "formatting"] }
+hex = "0.4.3"
