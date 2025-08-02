@@ -1,19 +1,19 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
-use axum::Json;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use tracing::info;
-use shared::rules_model::PortInfo;
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::db::actor::DbCmd;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use shared::rules_model::PortInfo;
 use shared::types::Scope;
 use shared::utils::time::now_ns;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::info;
 
 #[derive(Deserialize)]
 pub struct ConfigUpdate {
@@ -66,13 +66,12 @@ pub async fn list_ports(
     (StatusCode::OK, Json(json!({"status":"ok", "data":list})))
 }
 
-
 ///     API: `GET /ports/{port}/config`
 ///     method: `get_config`
 pub async fn get_config(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, _db)): State<SharedState>,   // _db unused here
+    State((cfg, registry, _db)): State<SharedState>, // _db unused here
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (
@@ -83,11 +82,17 @@ pub async fn get_config(
 
     match registry.get(&port) {
         Some(pr) => {
-            let name      = pr.name.load().as_deref().map(ToOwned::to_owned);
-            let comment   = pr.comment.load().as_deref().map(ToOwned::to_owned);
+            let name = pr.name.load().as_deref().map(ToOwned::to_owned);
+            let comment = pr.comment.load().as_deref().map(ToOwned::to_owned);
             let hex_color = pr.hex_color.load().as_deref().map(ToOwned::to_owned);
-            let scopes    = pr.enabled_scopes.read().unwrap().iter().cloned().collect::<Vec<_>>();
-            let compiled  = pr.compiled.load();
+            let scopes = pr
+                .enabled_scopes
+                .read()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            let compiled = pr.compiled.load();
 
             let info = PortInfo {
                 public: pr.binding.public,
@@ -109,11 +114,13 @@ pub async fn get_config(
                 None,
             );
 
-            (StatusCode::NOT_FOUND, Json(json!({"status":"error","errors":["unknown port"]})))
-        },
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status":"error","errors":["unknown port"]})),
+            )
+        }
     }
 }
-
 
 ///     API: `PUT /ports/{port}/config`
 ///     method: `put_config`
@@ -138,7 +145,9 @@ pub async fn put_config(
             sink_ecam::record(
                 Severity::Warn,
                 Origin::API,
-                format!("[PUT /ports/{port}/config, put_config()]: rejecting config | port not found"),
+                format!(
+                    "[PUT /ports/{port}/config, put_config()]: rejecting config | port not found"
+                ),
                 None,
             );
             return (
@@ -197,14 +206,20 @@ pub async fn put_config(
     }
 
     // ── build *effective* snapshot (post-update) ────────
-    let name      = pr.name.load().as_deref().map(ToOwned::to_owned);
-    let comment   = pr.comment.load().as_deref().map(ToOwned::to_owned);
+    let name = pr.name.load().as_deref().map(ToOwned::to_owned);
+    let comment = pr.comment.load().as_deref().map(ToOwned::to_owned);
     let hex_color = pr.hex_color.load().as_deref().map(ToOwned::to_owned);
-    let scopes    = pr.enabled_scopes.read().unwrap().iter().cloned().collect::<Vec<_>>();
-    let compiled  = pr.compiled.load();
+    let scopes = pr
+        .enabled_scopes
+        .read()
+        .unwrap()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let compiled = pr.compiled.load();
 
     let info = PortInfo {
-        public:   pr.binding.public,
+        public: pr.binding.public,
         upstream: pr.binding.upstream,
         name,
         comment,
@@ -219,7 +234,8 @@ pub async fn put_config(
         "comment": info.comment,
         "hex_color": info.hex_color,
         "enabled_scopes": info.enabled_scopes,
-    }).to_string();
+    })
+    .to_string();
 
     let _ = db.tx.try_send(DbCmd::SaveConfig {
         port,
@@ -236,6 +252,8 @@ pub async fn put_config(
 /// strict #RRGGBB (6 hex digits) validator
 fn is_valid_hex_color(s: &str) -> bool {
     let b = s.as_bytes();
-    if b.len() != 7 || b[0] != b'#' { return false; }
+    if b.len() != 7 || b[0] != b'#' {
+        return false;
+    }
     b[1..].iter().all(|c| c.is_ascii_hexdigit())
 }

@@ -1,4 +1,4 @@
-use super::{regex_core::RegexCore, MatchInput, MatchOutputCore, Matcher};
+use super::{MatchInput, MatchOutputCore, Matcher, regex_core::RegexCore};
 use shared::types::Scope;
 
 pub struct HeaderRegex {
@@ -7,11 +7,7 @@ pub struct HeaderRegex {
 }
 
 impl HeaderRegex {
-    pub fn new(
-        header_name: &str,
-        pattern: &str,
-        case_sensitive: bool,
-    ) -> anyhow::Result<Self> {
+    pub fn new(header_name: &str, pattern: &str, case_sensitive: bool) -> anyhow::Result<Self> {
         Ok(Self {
             header_name: header_name.to_ascii_lowercase(),
             core: RegexCore::new(pattern, case_sensitive)?,

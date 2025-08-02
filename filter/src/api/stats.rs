@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
-use axum::Json;
-use serde_json::json;
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use serde_json::json;
+use std::collections::HashMap;
 
 ///     API: `GET /ports/{port}/stats`
 ///     method: `get_stats`
@@ -39,6 +39,6 @@ pub async fn get_stats(
                 StatusCode::NOT_FOUND,
                 Json(json!({"status":"error","errors":["unknown port"]})),
             )
-        },
+        }
     }
 }

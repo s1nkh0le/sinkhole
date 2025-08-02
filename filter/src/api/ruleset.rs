@@ -10,10 +10,10 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde_json::json;
+use shared::utils::time::now_ns;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info};
-use shared::utils::time::now_ns;
 
 ///     API: `GET /ports/{port}/ruleset`
 ///     method: `get_ruleset`
@@ -91,7 +91,8 @@ pub async fn put_ruleset(
             Severity::Warn,
             Origin::API,
             format!(
-                "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | ruleset validation failed, error=s{}", errs.join(", ")
+                "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | ruleset validation failed, error=s{}",
+                errs.join(", ")
             ),
             None,
         );

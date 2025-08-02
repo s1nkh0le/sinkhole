@@ -2,15 +2,15 @@
   <configuration default="false" name="filter" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="buildProfileId" value="dev" />
     <option name="command" value="run -p filter" />
-    <option name="workingDirectory" value="file://$PROJECT_DIR$/filter" />
+    <option name="workingDirectory" value="file://$PROJECT_DIR$" />
     <envs>
+      <env name="SINKHOLE_FILTER_AUTH_HASH" value="a31fe9656fc8d3a459e623dc8204e6d0268f8df56d734dac3ca3262edb5db883" />
       <env name="SINKHOLE_FILTER_CTRL_PORT" value="7001" />
       <env name="SINKHOLE_FILTER_DB_PATH" value="sinkhole-filter.db" />
       <env name="SINKHOLE_FILTER_DEBUG" value="true" />
       <env name="SINKHOLE_FILTER_HYDRATE_DB" value="true" />
       <env name="SINKHOLE_FILTER_LISTEN_MAP" value="8080:80,8081:81" />
       <env name="SINKHOLE_FILTER_UPSTREAM_HOST" value="127.0.0.1" />
-      <env name="SINKHOLE_FILTER_AUTH_HASH" value="a31fe9656fc8d3a459e623dc8204e6d0268f8df56d734dac3ca3262edb5db883" />
     </envs>
     <option name="emulateTerminal" value="true" />
     <option name="channel" value="DEFAULT" />

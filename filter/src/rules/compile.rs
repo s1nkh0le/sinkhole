@@ -2,16 +2,16 @@ use std::sync::Arc;
 
 use super::version::calc_version;
 use crate::matcher::Matcher;
-use crate::matcher::size::SizeMatcher;
-use shared::types::{Mode, RuleDirection, Scope};
-use anyhow::{anyhow, bail, Result};
-use shared::rules_model::{FilterDef, MarkerDef, MatcherDef, RuleSetRaw};
 use crate::matcher::always::AlwaysMatcher;
 use crate::matcher::method_regex::MethodRegexMatcher;
 use crate::matcher::session_idle::SessionIdleMatcher;
 use crate::matcher::session_lifetime::SessionLifetimeMatcher;
+use crate::matcher::size::SizeMatcher;
 use crate::matcher::status_regex::StatusRegexMatcher;
 use crate::matcher::types::CmpOp;
+use anyhow::{Result, anyhow, bail};
+use shared::rules_model::{FilterDef, MarkerDef, MatcherDef, RuleSetRaw};
+use shared::types::{Mode, RuleDirection, Scope};
 
 pub struct CompiledMarker {
     pub id: String,
@@ -106,7 +106,6 @@ fn compile_filter(f: &FilterDef) -> Result<CompiledFilter> {
     })
 }
 
-
 fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>, MatcherMeta)> {
     use MatcherDef::*;
     match def {
@@ -136,7 +135,10 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 condition: format!("regex /{}/", pattern),
             },
         )),
-        StatusRegex { pattern, case_sensitive } => {
+        StatusRegex {
+            pattern,
+            case_sensitive,
+        } => {
             let m = StatusRegexMatcher::new(pattern, *case_sensitive)
                 .map_err(|e| anyhow!("invalid status regex: {}", e))?;
             Ok((
@@ -148,7 +150,11 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 },
             ))
         }
-        Size { op, value, field_name } => {
+        Size {
+            op,
+            value,
+            field_name,
+        } => {
             let cmp = parse_op(op)?; // your existing parser
             let m = SizeMatcher {
                 op: cmp,
@@ -158,13 +164,13 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
 
             let target = match scope {
                 Scope::HttpHeader => format!("headers[{}]", field_name.as_deref().unwrap_or("?")),
-                Scope::HttpPath   => "path".into(),
-                Scope::HttpBody   => "body".into(),
+                Scope::HttpPath => "path".into(),
+                Scope::HttpBody => "body".into(),
                 Scope::HttpMethod => "method".into(),
                 Scope::HttpStatus => "status".into(), // can't happen
-                Scope::Stream     => "stream".into(),
-                Scope::Timing     => "timing".into(), // can't happen
-                Scope::Meta       => "meta".into(),
+                Scope::Stream => "stream".into(),
+                Scope::Timing => "timing".into(), // can't happen
+                Scope::Meta => "meta".into(),
             };
 
             Ok((
@@ -177,10 +183,7 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
             ))
         }
         PathRegex { pattern, .. } => Ok((
-            Arc::new(crate::matcher::path_regex::PathRegex::new(
-                pattern,
-                false,
-            )?),
+            Arc::new(crate::matcher::path_regex::PathRegex::new(pattern, false)?),
             MatcherMeta {
                 comparator: "regex".into(),
                 target: "path".into(),
@@ -188,17 +191,17 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
             },
         )),
         BodyRegex { pattern, .. } => Ok((
-            Arc::new(crate::matcher::body_regex::BodyRegex::new(
-                pattern,
-                false,
-            )?),
+            Arc::new(crate::matcher::body_regex::BodyRegex::new(pattern, false)?),
             MatcherMeta {
                 comparator: "regex".into(),
                 target: "body".into(),
                 condition: format!("regex /{}/", pattern),
             },
         )),
-        MethodRegex { pattern, case_sensitive } => {
+        MethodRegex {
+            pattern,
+            case_sensitive,
+        } => {
             let m = MethodRegexMatcher::new(pattern, *case_sensitive)
                 .map_err(|e| anyhow!("invalid regex for method: {}", e))?;
 
@@ -215,7 +218,10 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
             let cmp = parse_op(op)?;
             ensure_timing_scope(*scope, "session_lifetime")?;
             Ok((
-                Arc::new(SessionLifetimeMatcher { op: cmp, value: *value }),
+                Arc::new(SessionLifetimeMatcher {
+                    op: cmp,
+                    value: *value,
+                }),
                 MatcherMeta {
                     comparator: format!("timing {} {}s", op, value),
                     target: "conn_lifetime".into(),
@@ -227,7 +233,10 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
             let cmp = parse_op(op)?;
             ensure_timing_scope(*scope, "session_idle")?;
             Ok((
-                Arc::new(SessionIdleMatcher { op: cmp, value: *value }),
+                Arc::new(SessionIdleMatcher {
+                    op: cmp,
+                    value: *value,
+                }),
                 MatcherMeta {
                     comparator: format!("idle {} {}s", op, value),
                     target: "conn_idle".into(),
@@ -235,16 +244,14 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 },
             ))
         }
-        Always { value } => {
-            Ok((
-                Arc::new(AlwaysMatcher::new(*value)),
-                MatcherMeta {
-                    comparator: "const".into(),
-                    target: "meta".into(),
-                    condition: format!("always {}", value),
-                },
-            ))
-        }
+        Always { value } => Ok((
+            Arc::new(AlwaysMatcher::new(*value)),
+            MatcherMeta {
+                comparator: "const".into(),
+                target: "meta".into(),
+                condition: format!("always {}", value),
+            },
+        )),
     }
 }
 

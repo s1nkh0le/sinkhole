@@ -1,7 +1,7 @@
-use shared::types::{Decision, Scope, MatchStatus};
-use serde::Serialize;
+use crate::types::{Decision, MatchStatus, Scope};
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HttpInfo {
     pub method: Option<String>,
     pub path: Option<String>,
@@ -12,13 +12,11 @@ pub struct HttpInfo {
     pub truncated: bool,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum DropReason {
     #[serde(rename = "blacklist")]
-    Blacklist {
-        filter_ids: Vec<String>,
-    },
+    Blacklist { filter_ids: Vec<String> },
     #[serde(rename = "whitelist_all_miss")]
     WhitelistAllMiss {
         required: usize,
@@ -32,8 +30,7 @@ pub enum DropReason {
     },
 }
 
-
-#[derive(Serialize, Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MatchOutput {
     pub scope: Scope,
     pub target: String,
@@ -48,7 +45,7 @@ pub struct MatchOutput {
     pub error: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EvaluationDetail {
     pub kind: String, // "marker" | "filter"
     pub id: String,
@@ -60,7 +57,7 @@ pub struct EvaluationDetail {
 }
 
 // per‑message
-#[derive(Serialize, Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StatsSnapshot {
     pub blacklist_hits: u64,
     pub whitelist_all_total: u64,
@@ -69,8 +66,7 @@ pub struct StatsSnapshot {
     pub whitelist_any_hit: u64,
 }
 
-
-#[derive(Serialize, Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EvaluationRecord {
     pub timestamp_ns: u128,
     pub conn_id: u64,

@@ -347,7 +347,6 @@ dependencies = [
  "bytes",
  "dashmap",
  "envy",
- "hex",
  "httparse",
  "once_cell",
  "regex",

@@ -6,13 +6,19 @@ pub struct AlwaysMatcher {
 }
 
 impl AlwaysMatcher {
-    pub fn new(value: bool) -> Self { Self { value } }
+    pub fn new(value: bool) -> Self {
+        Self { value }
+    }
 }
 
 impl Matcher for AlwaysMatcher {
     fn evaluate(&self, _inp: &MatchInput) -> MatchOutputCore {
         MatchOutputCore {
-            status: if self.value { MatchStatus::Satisfied } else { MatchStatus::NotSatisfied },
+            status: if self.value {
+                MatchStatus::Satisfied
+            } else {
+                MatchStatus::NotSatisfied
+            },
             input: String::new(),
             matched: None,
             numeric: None,

@@ -1,2 +1,2 @@
 mod env;
-pub use env::{load, Config, PortBinding};
+pub use env::{Config, PortBinding, load};

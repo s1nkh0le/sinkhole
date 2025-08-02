@@ -1,26 +1,25 @@
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
-use axum::Json;
-use serde::Deserialize;
-use serde_json::json;
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::db;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use serde::Deserialize;
+use serde_json::json;
 
 #[derive(Deserialize, Debug)]
 pub struct LogsQuery {
     pub since: Option<i64>,
     pub until: Option<i64>,
     pub limit: Option<usize>,
-    pub order: Option<String>,          // "asc" | "desc"
-    pub decision: Option<String>,       // "allow" | "drop"
-    pub dir: Option<String>,            // "in" | "out"
-    pub reason: Option<String>,         // "blacklist" | "whitelist_all_miss" | "whitelist_any_miss"
+    pub order: Option<String>,    // "asc" | "desc"
+    pub decision: Option<String>, // "allow" | "drop"
+    pub dir: Option<String>,      // "in" | "out"
+    pub reason: Option<String>,   // "blacklist" | "whitelist_all_miss" | "whitelist_any_miss"
     pub token: Option<String>,
 }
-
 
 ///     API: `GET /ports/{port}/logs`
 ///     method: `get_logs`
@@ -46,7 +45,10 @@ pub async fn get_logs(
             None,
         );
 
-        return (StatusCode::NOT_FOUND, Json(json!({"status":"error","errors":["unknown port"]})));
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"status":"error","errors":["unknown port"]})),
+        );
     }
 
     // ---- sanity checks -------------------------------------------------
@@ -68,7 +70,7 @@ pub async fn get_logs(
 
     let reason = q.reason.as_deref().map(str::to_ascii_lowercase);
     if let Some(ref r) = reason {
-        const ALLOWED: &[&str] = &["blacklist","whitelist_all_miss","whitelist_any_miss"];
+        const ALLOWED: &[&str] = &["blacklist", "whitelist_all_miss", "whitelist_any_miss"];
         if !ALLOWED.contains(&r.as_str()) {
             errs.push(format!("reason must be one of {:?}", ALLOWED));
         }
@@ -76,7 +78,7 @@ pub async fn get_logs(
 
     let order_raw = q.order.as_deref().unwrap_or("asc");
     let asc = match order_raw.to_ascii_lowercase().as_str() {
-        "asc"  => true,
+        "asc" => true,
         "desc" => false,
         _ => {
             errs.push("order must be 'asc' or 'desc'".to_string());
@@ -100,11 +102,17 @@ pub async fn get_logs(
         sink_ecam::record(
             Severity::Warn,
             Origin::API,
-            format!("[GET /ports/{port}/logs, get_logs()]: errors while preparing query: {}", errs.join(", ")),
+            format!(
+                "[GET /ports/{port}/logs, get_logs()]: errors while preparing query: {}",
+                errs.join(", ")
+            ),
             None,
         );
 
-        return (StatusCode::BAD_REQUEST, Json(json!({"status":"error","errors": errs})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"status":"error","errors": errs})),
+        );
     }
 
     match db::query::fetch_records_filtered(
@@ -117,7 +125,9 @@ pub async fn get_logs(
         q.decision.as_deref(),
         q.dir.as_deref(),
         q.reason.as_deref(),
-    ).await {
+    )
+    .await
+    {
         Ok((mut records, _last_ts_from_db)) => {
             let next_since = records
                 .last()
@@ -140,7 +150,10 @@ pub async fn get_logs(
             sink_ecam::record(
                 Severity::Warn,
                 Origin::API,
-                format!("[GET /ports/{port}/logs, get_logs()]: database query failed: error={}", e),
+                format!(
+                    "[GET /ports/{port}/logs, get_logs()]: database query failed: error={}",
+                    e
+                ),
                 None,
             );
 

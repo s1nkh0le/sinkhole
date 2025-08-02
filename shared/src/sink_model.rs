@@ -25,7 +25,7 @@ pub enum Origin {
     DB,
     API,
     Telemetry,
-    Security
+    Security,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

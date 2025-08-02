@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Context, Result};
+use crate::observability::sinks::sink_ecam;
+use crate::observability::sinks::sink_ecam::{Origin, Severity};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fmt, net::SocketAddr, str::FromStr};
 use tracing::{debug, info, warn};
-use crate::observability::sinks::sink_ecam;
-use crate::observability::sinks::sink_ecam::{Origin, Severity};
 
 const DEFAULT_CTRL_PORT: u16 = 7000;
 const DEFAULT_BODY_LIMIT: usize = 1_048_576; // 1MB
@@ -54,7 +54,7 @@ struct RawConfig {
     #[serde(default)]
     pub sinks_stdout: Option<bool>,
     #[serde(default)]
-    pub sinks_emit:   Option<bool>,
+    pub sinks_emit: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,8 +77,12 @@ impl Config {
     }
 }
 
-fn default_ctrl_port() -> u16 { DEFAULT_CTRL_PORT }
-fn default_db_path() -> String { "sinkhole.db".into() }
+fn default_ctrl_port() -> u16 {
+    DEFAULT_CTRL_PORT
+}
+fn default_db_path() -> String {
+    "sinkhole.db".into()
+}
 
 const ENV_PREFIX: &'static str = "SINKHOLE_FILTER_";
 
@@ -122,7 +126,8 @@ pub fn load() -> Result<Config> {
 
     if ports.iter().any(|p| p.public == raw.ctrl_port) {
         errs.push(format!(
-            "{}_CTRL_PORT ({}) collides with a public port", ENV_PREFIX, raw.ctrl_port
+            "{}_CTRL_PORT ({}) collides with a public port",
+            ENV_PREFIX, raw.ctrl_port
         ));
     }
 
@@ -130,7 +135,10 @@ pub fn load() -> Result<Config> {
     if let Some(ref h) = raw.auth_hash {
         let hex_ok = h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit());
         if !hex_ok {
-            errs.push(format!("{}_AUTH_HASH must be 64 hex chars (SHA-256)", ENV_PREFIX));
+            errs.push(format!(
+                "{}_AUTH_HASH must be 64 hex chars (SHA-256)",
+                ENV_PREFIX
+            ));
         }
     }
 
@@ -144,11 +152,12 @@ pub fn load() -> Result<Config> {
         let joined = errs.join("; ");
 
         sink_ecam::record(
-            Severity::Error, Origin::Configuration,
+            Severity::Error,
+            Origin::Configuration,
             format!("errors: {}", joined),
-            None
+            None,
         );
-            
+
         return Err(anyhow!(joined));
     }
 
@@ -158,12 +167,13 @@ pub fn load() -> Result<Config> {
         debug = raw.debug,
         "configuration validated"
     );
-    
+
     if raw.auth_hash.is_none() {
         sink_ecam::record(
-            Severity::Warn, Origin::Configuration,
+            Severity::Warn,
+            Origin::Configuration,
             format!("AUTH disabled: {}_AUTH_HASH is not set", ENV_PREFIX),
-            None
+            None,
         )
     }
 
@@ -197,14 +207,17 @@ fn parse_listen_map(s: &str) -> Result<Vec<PortBinding>> {
         let (a, b) = pair
             .split_once(':')
             .ok_or_else(|| anyhow!("invalid pair '{}'", pair))?;
-        let public = u16::from_str(a.trim())
-            .with_context(|| format!("invalid public port '{}'", a))?;
-        let upstream = u16::from_str(b.trim())
-            .with_context(|| format!("invalid upstream port '{}'", b))?;
+        let public =
+            u16::from_str(a.trim()).with_context(|| format!("invalid public port '{}'", a))?;
+        let upstream =
+            u16::from_str(b.trim()).with_context(|| format!("invalid upstream port '{}'", b))?;
         out.push(PortBinding { public, upstream });
     }
     if out.is_empty() {
-        return Err(anyhow!("{}_LISTEN_MAP produced no valid bindings", ENV_PREFIX));
+        return Err(anyhow!(
+            "{}_LISTEN_MAP produced no valid bindings",
+            ENV_PREFIX
+        ));
     }
     Ok(out)
 }

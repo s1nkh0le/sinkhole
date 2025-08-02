@@ -1,14 +1,12 @@
-use std::sync::Arc;
-use rusqlite::{params, Connection};
 use crate::db::schema::init_schema;
 use crate::rules::RuleSetRaw;
+use rusqlite::{Connection, params};
 use shared::types::Scope;
-
-
+use std::sync::Arc;
 
 pub struct HydratedPortData {
     pub ruleset: Option<(RuleSetRaw, String)>, // (raw, version)
-    pub config:  Option<HydratedConfig>,
+    pub config: Option<HydratedConfig>,
 }
 
 pub struct HydratedConfig {
@@ -18,17 +16,25 @@ pub struct HydratedConfig {
     pub enabled_scopes: Vec<Scope>,
 }
 
-
 //noinspection RsUnwrap
-pub fn hydrate_registry(db_path: &str, registry: &crate::registry::PortRegistry) -> anyhow::Result<()> {
+pub fn hydrate_registry(
+    db_path: &str,
+    registry: &crate::registry::PortRegistry,
+) -> anyhow::Result<()> {
     let ports: Vec<u16> = registry.iter().map(|e| e.binding.public).collect();
     let data = hydrate_for_ports(db_path, &ports)?;
     for (port, h) in data {
         if let Some(pr) = registry.get(&port) {
             if let Some(cfgp) = h.config {
-                if let Some(n) = cfgp.name { pr.name.store(Some(Arc::new(n))); }
-                if let Some(c) = cfgp.comment { pr.comment.store(Some(Arc::new(c))); }
-                if let Some(hc) = cfgp.hex_color { pr.hex_color.store(Some(Arc::new(hc))); }
+                if let Some(n) = cfgp.name {
+                    pr.name.store(Some(Arc::new(n)));
+                }
+                if let Some(c) = cfgp.comment {
+                    pr.comment.store(Some(Arc::new(c)));
+                }
+                if let Some(hc) = cfgp.hex_color {
+                    pr.hex_color.store(Some(Arc::new(hc)));
+                }
                 let mut g = pr.enabled_scopes.write().unwrap();
                 g.clear();
                 g.extend(cfgp.enabled_scopes.into_iter());
@@ -43,24 +49,24 @@ pub fn hydrate_registry(db_path: &str, registry: &crate::registry::PortRegistry)
     Ok(())
 }
 
-pub fn hydrate_for_ports(path: &str, ports: &[u16]) -> anyhow::Result<Vec<(u16, HydratedPortData)>> {
+pub fn hydrate_for_ports(
+    path: &str,
+    ports: &[u16],
+) -> anyhow::Result<Vec<(u16, HydratedPortData)>> {
     let mut conn = Connection::open(path)?;
     // ensure tables exist (idempotent)
     init_schema(&conn)?;
     let mut out = Vec::new();
     for p in ports {
         let ruleset = load_ruleset(&mut conn, *p)?;
-        let config  = load_config(&mut conn, *p)?;
+        let config = load_config(&mut conn, *p)?;
         out.push((*p, HydratedPortData { ruleset, config }));
     }
     Ok(out)
 }
 
-
 fn load_ruleset(conn: &mut Connection, port: u16) -> anyhow::Result<Option<(RuleSetRaw, String)>> {
-    let mut stmt = conn.prepare(
-        "SELECT version, json FROM port_rulesets WHERE port = ?"
-    )?;
+    let mut stmt = conn.prepare("SELECT version, json FROM port_rulesets WHERE port = ?")?;
     let mut rows = stmt.query(params![port as i64])?;
     if let Some(row) = rows.next()? {
         let version: String = row.get(0)?;
@@ -75,7 +81,7 @@ fn load_ruleset(conn: &mut Connection, port: u16) -> anyhow::Result<Option<(Rule
 fn load_config(conn: &mut Connection, port: u16) -> anyhow::Result<Option<HydratedConfig>> {
     let mut stmt = conn.prepare(
         "SELECT name, comment, hex_color, enabled_scopes_json
-         FROM port_configs WHERE port = ?"
+         FROM port_configs WHERE port = ?",
     )?;
     let mut rows = stmt.query(params![port as i64])?;
     if let Some(row) = rows.next()? {
@@ -84,7 +90,12 @@ fn load_config(conn: &mut Connection, port: u16) -> anyhow::Result<Option<Hydrat
         let hex_color: Option<String> = row.get(2)?;
         let scopes_json: String = row.get(3)?;
         let scopes: Vec<Scope> = serde_json::from_str(&scopes_json).unwrap_or_default();
-        Ok(Some(HydratedConfig { name, comment, hex_color, enabled_scopes: scopes }))
+        Ok(Some(HydratedConfig {
+            name,
+            comment,
+            hex_color,
+            enabled_scopes: scopes,
+        }))
     } else {
         Ok(None)
     }

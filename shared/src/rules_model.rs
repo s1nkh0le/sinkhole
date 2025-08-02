@@ -98,7 +98,6 @@ pub struct PortInfo {
     pub version: String,
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RuleSetRaw {
     pub comment: Option<String>,

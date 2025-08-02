@@ -1,6 +1,6 @@
 use crate::matcher::{MatchInput, MatchOutputCore, Matcher};
-use shared::types::MatchStatus;
 use regex::Regex;
+use shared::types::MatchStatus;
 
 pub struct MethodRegexMatcher {
     re: Regex,
@@ -24,12 +24,20 @@ impl Matcher for MethodRegexMatcher {
         let m = self.re.find(method);
 
         MatchOutputCore {
-            status: if m.is_some() { MatchStatus::Satisfied } else { MatchStatus::NotSatisfied },
+            status: if m.is_some() {
+                MatchStatus::Satisfied
+            } else {
+                MatchStatus::NotSatisfied
+            },
             input: method.to_string(),
             matched: m.map(|m| m.as_str().to_string()),
             numeric: None,
             comment: None,
-            flags: if self.case_sensitive { vec![] } else { vec!["case_insensitive".into()] },
+            flags: if self.case_sensitive {
+                vec![]
+            } else {
+                vec!["case_insensitive".into()]
+            },
             error: None,
         }
     }

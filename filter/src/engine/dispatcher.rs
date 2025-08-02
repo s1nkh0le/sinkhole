@@ -3,16 +3,14 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use base64::Engine;
-use shared::types::{Decision, Direction, MatchStatus, Mode, Scope};
-use shared::utils::time::now_ns;
 use crate::{
     matcher::{MatchInput, MatchOutputCore},
-    observability::eval_record::{
-        DropReason, EvaluationDetail, EvaluationRecord, HttpInfo, MatchOutput,
-    },
     rules::compile::{CompiledFilter, CompiledMarker, CompiledRuleSet, MatcherMeta},
 };
+use base64::Engine;
+use shared::eval_record::{DropReason, EvaluationDetail, EvaluationRecord, HttpInfo, MatchOutput};
+use shared::types::{Decision, Direction, MatchStatus, Mode, Scope};
+use shared::utils::time::now_ns;
 
 use crate::registry::PortRuntime;
 
@@ -30,7 +28,7 @@ pub struct MessageCtx<'a> {
     pub src_port: u16,
 
     pub conn_start_ns: u128,
-    pub conn_prev_msg_ns:   u128,
+    pub conn_prev_msg_ns: u128,
 }
 
 /// Main entry: evaluate all rules, return (Decision, EvaluationRecord)
@@ -64,9 +62,9 @@ pub fn evaluate(
             MatchStatus::Satisfied => {
                 verified.insert(&m.id);
             }
-            MatchStatus::NotSatisfied => {},
-            MatchStatus::Skipped => {},
-            MatchStatus::Error => {},
+            MatchStatus::NotSatisfied => {}
+            MatchStatus::Skipped => {}
+            MatchStatus::Error => {}
         }
 
         details.push(build_detail(
@@ -89,11 +87,11 @@ pub fn evaluate(
     // ----------------------------------------------------------------
     let mut blacklist_hits: Vec<String> = Vec::new();
 
-    let mut wl_all_req:   Vec<String> = Vec::new(); // gated whitelist-all filters
-    let mut wl_all_hit:   Vec<String> = Vec::new();
+    let mut wl_all_req: Vec<String> = Vec::new(); // gated whitelist-all filters
+    let mut wl_all_hit: Vec<String> = Vec::new();
 
-    let mut wl_any_req:   Vec<String> = Vec::new(); // gated whitelist-any filters
-    let mut wl_any_hit:   Vec<String> = Vec::new();
+    let mut wl_any_req: Vec<String> = Vec::new(); // gated whitelist-any filters
+    let mut wl_any_hit: Vec<String> = Vec::new();
 
     'filters: for f in &compiled.filters {
         if !f.enabled || !f.direction.matches(dir) {
@@ -101,10 +99,9 @@ pub fn evaluate(
         }
 
         // gating ------------------------------------------------------------
-        let gated = f
-            .needed_all.iter().all(|id| verified.contains(id.as_str()))
+        let gated = f.needed_all.iter().all(|id| verified.contains(id.as_str()))
             && (f.needed_any.is_empty()
-            || f.needed_any.iter().any(|id| verified.contains(id.as_str())));
+                || f.needed_any.iter().any(|id| verified.contains(id.as_str())));
 
         if !gated {
             details.push(build_detail(
@@ -133,7 +130,7 @@ pub fn evaluate(
         // account hits
         if out.status == MatchStatus::Satisfied {
             match f.mode {
-                Mode::Blacklist    => blacklist_hits.push(f.id.clone()),
+                Mode::Blacklist => blacklist_hits.push(f.id.clone()),
                 Mode::WhitelistAll => wl_all_hit.push(f.id.clone()),
                 Mode::WhitelistAny => wl_any_hit.push(f.id.clone()),
             }
@@ -142,8 +139,12 @@ pub fn evaluate(
         // decision_effect for telemetry
         let decision_eff = match f.mode {
             Mode::Blacklist if out.status == MatchStatus::Satisfied => Some("blacklist_drop"),
-            Mode::WhitelistAll if out.status == MatchStatus::Satisfied => Some("whitelist_all_satisfied"),
-            Mode::WhitelistAny if out.status == MatchStatus::Satisfied => Some("whitelist_any_satisfied"),
+            Mode::WhitelistAll if out.status == MatchStatus::Satisfied => {
+                Some("whitelist_all_satisfied")
+            }
+            Mode::WhitelistAny if out.status == MatchStatus::Satisfied => {
+                Some("whitelist_any_satisfied")
+            }
             _ => None,
         };
 
@@ -199,7 +200,6 @@ pub fn evaluate(
         }
     };
 
-
     // ----------------------------------------------------------------
     // Build EvaluationRecord
     // ----------------------------------------------------------------
@@ -212,7 +212,6 @@ pub fn evaluate(
         body_len: h.body.len(),
         truncated: h.truncated,
     });
-
 
     let record = EvaluationRecord {
         timestamp_ns: now_ns(),
@@ -242,13 +241,13 @@ fn build_match_input<'a>(msg: &'a MessageCtx, scope: Scope) -> MatchInput<'a> {
         inbound: msg.inbound,
         http: msg.http,
         raw: msg.raw,
-        ctx: msg
+        ctx: msg,
     }
 }
 
 fn build_detail(
     kind: &str,
-    rule: &impl HasId,                 // trait object workaround
+    rule: &impl HasId, // trait object workaround
     core: &MatchOutputCore,
     meta: MatcherMeta,
     mode_opt: Option<Mode>,
@@ -283,12 +282,20 @@ trait HasId {
     fn name(&self) -> &Option<String>;
 }
 impl HasId for CompiledMarker {
-    fn id(&self) -> &String { &self.id }
-    fn name(&self) -> &Option<String> { &self.name }
+    fn id(&self) -> &String {
+        &self.id
+    }
+    fn name(&self) -> &Option<String> {
+        &self.name
+    }
 }
 impl HasId for CompiledFilter {
-    fn id(&self) -> &String { &self.id }
-    fn name(&self) -> &Option<String> { &self.name }
+    fn id(&self) -> &String {
+        &self.id
+    }
+    fn name(&self) -> &Option<String> {
+        &self.name
+    }
 }
 
 fn meta_target_to_scope(t: &str) -> Scope {

@@ -1,14 +1,14 @@
+use crate::observability::sinks;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+pub(crate) use shared::sink_model::{EcamEvent, Origin, Severity};
+use shared::utils::time::now_ns;
 use std::collections::VecDeque;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use strum_macros::Display;
 use tracing::error;
 use tracing::warn;
-use crate::observability::sinks;
-use shared::utils::time::now_ns;
-pub(crate) use shared::sink_model::{EcamEvent, Origin, Severity};
 
 const MAX_ECAM_EVENTS: usize = 2_000;
 
@@ -21,7 +21,9 @@ pub static ECAM_SINK: Lazy<EcamSink> = Lazy::new(EcamSink::new);
 
 impl EcamSink {
     fn new() -> Self {
-        Self { inner: Arc::new(RwLock::new(VecDeque::new())) }
+        Self {
+            inner: Arc::new(RwLock::new(VecDeque::new())),
+        }
     }
 
     fn push(&self, ev: EcamEvent) {
@@ -44,7 +46,6 @@ impl EcamSink {
     }
 }
 
-
 pub fn record(
     severity: Severity,
     origin: Origin,
@@ -53,11 +54,11 @@ pub fn record(
 ) {
     let log_stdout = sinks::TARGETS.sinks_stdout.load(Ordering::Relaxed);
     let push_sink = sinks::TARGETS.sinks_emit.load(Ordering::Relaxed);
-    
+
     if !log_stdout && !push_sink {
         return;
     }
-    
+
     let ev = EcamEvent {
         ts_ns: now_ns() as i64,
         severity,

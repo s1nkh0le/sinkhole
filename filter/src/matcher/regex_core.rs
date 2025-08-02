@@ -32,9 +32,9 @@ impl RegexCore {
                 } else {
                     vec!["case_insensitive"]
                 }
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
                 error: None,
             }
         } else {

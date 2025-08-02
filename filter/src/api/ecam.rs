@@ -1,12 +1,11 @@
 use crate::api::auth;
 use crate::api::routes::SharedState;
-use crate::observability::sinks::sink_ecam::{EcamEvent, ECAM_SINK};
+use crate::observability::sinks::sink_ecam::{ECAM_SINK, EcamEvent};
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::{extract::Query, Json};
+use axum::{Json, extract::Query};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-
 
 #[derive(Debug, Serialize)]
 pub struct ApiRespEcam<'a> {

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::config::ServiceCfg;
 use shared::rules_model::{PortInfo, RuleSetRaw};
+use crate::db::DbHandle;
 
 #[derive(Debug)]
 pub struct Port {
@@ -38,6 +39,7 @@ pub struct Service {
 #[derive(Debug)]
 pub struct Inner {
     pub services: HashMap<String, Service>,
+    pub db:       DbHandle,
 }
 
 #[derive(Debug, Clone)]
@@ -46,7 +48,7 @@ pub struct ControllerState {
 }
 
 impl ControllerState {
-    pub fn new(cfg: crate::config::Config) -> anyhow::Result<Self> {
+    pub fn new(cfg: crate::config::Config, db: DbHandle) -> anyhow::Result<Self> {
         let mut services = HashMap::new();
         for svc in cfg.services {
             services.insert(
@@ -61,10 +63,16 @@ impl ControllerState {
             );
         }
         Ok(Self {
-            inner: Arc::new(RwLock::new(Inner {
-                services
-            })),
+            inner: Arc::new(RwLock::new(Inner { services, db })),
         })
+    }
+
+    pub fn db(&self) -> DbHandle {
+        self.inner.read().db.clone()
+    }
+
+    pub fn service_ids(&self) -> Vec<String> {
+        self.read().services.keys().cloned().collect()
     }
 
     pub fn read(&self) -> parking_lot::RwLockReadGuard<'_, Inner> {

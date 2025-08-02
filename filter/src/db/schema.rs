@@ -31,7 +31,7 @@ pub fn init_schema(conn: &Connection) -> anyhow::Result<()> {
           enabled_scopes_json TEXT NOT NULL,
           updated_at_ns INTEGER NOT NULL
         );
-        "#
+        "#,
     )?;
     Ok(())
 }

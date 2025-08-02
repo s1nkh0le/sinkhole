@@ -1,7 +1,7 @@
-use anyhow::{Result};
-use bytes::Bytes;
 use crate::http::request::try_parse_request;
 use crate::http::response::try_parse_response;
+use anyhow::Result;
+use bytes::Bytes;
 
 #[derive(Debug, Clone)]
 pub struct HttpMessage {
@@ -17,7 +17,8 @@ pub struct HttpMessage {
 impl HttpMessage {
     pub fn header_value(&self, name: &str) -> Option<&str> {
         let needle = name.to_ascii_lowercase();
-        self.headers.iter()
+        self.headers
+            .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(&needle))
             .map(|(_, v)| v.as_str())
     }
@@ -47,17 +48,24 @@ pub fn parse_http(buf: &[u8], inbound: bool) -> Result<Option<(ParsedHttp, usize
 
     if inbound {
         // client → server: request first
-        if let Some(r) = try_parse_request(buf)? { return Ok(Some(r)); }
-        if let Some(r) = try_parse_response(buf)? { return Ok(Some(r)); }
+        if let Some(r) = try_parse_request(buf)? {
+            return Ok(Some(r));
+        }
+        if let Some(r) = try_parse_response(buf)? {
+            return Ok(Some(r));
+        }
     } else {
         // server → client: response first
-        if let Some(r) = try_parse_response(buf)? { return Ok(Some(r)); }
-        if let Some(r) = try_parse_request(buf)? { return Ok(Some(r)); }
+        if let Some(r) = try_parse_response(buf)? {
+            return Ok(Some(r));
+        }
+        if let Some(r) = try_parse_request(buf)? {
+            return Ok(Some(r));
+        }
     }
 
     Ok(None)
 }
-
 
 pub fn looks_like_http(buf: &[u8]) -> bool {
     // naive: starts with [A-Z]{3,10} space "/" or "HTTP/"

@@ -1,8 +1,8 @@
 use crate::registry::PortRuntime;
 use crate::rules::compile::CompiledRuleSet;
+use shared::rules_model::{MatcherDef, RuleSetRaw};
 use std::sync::Arc;
 use tracing::debug;
-use shared::rules_model::{MatcherDef, RuleSetRaw};
 
 /// Emit a concise snapshot of port state at DEBUG level.
 pub fn dump_port_state(rt: &Arc<PortRuntime>) {
@@ -15,17 +15,18 @@ pub fn dump_port_state(rt: &Arc<PortRuntime>) {
 
     // ---- meta -----------------------------------------------------------
     let name_guard = rt.name.load();
-    let name = name_guard
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or("-");
+    let name = name_guard.as_ref().map(|s| s.as_str()).unwrap_or("-");
 
     let scopes = rt
         .enabled_scopes
         .read()
         .expect("PortRuntime.enabled_scopes lock poisoned");
 
-    let scope_list = scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", ");
+    let scope_list = scopes
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
 
     debug!(
         port = rt.binding.public,
@@ -68,16 +69,23 @@ pub fn dump_port_state(rt: &Arc<PortRuntime>) {
 fn matcher_desc(m: &MatcherDef) -> String {
     use MatcherDef::*;
     match m {
-        StreamRegex { pattern, .. }  => format!("stream_regex /{}/", pattern),
-        PathRegex   { pattern, .. }  => format!("path_regex /{}/",   pattern),
-        BodyRegex   { pattern, .. }  => format!("body_regex /{}/",   pattern),
-        HeaderRegex { header_name, pattern, .. } =>
-            format!("header_regex {}=/{} /", header_name, pattern),
-        MethodRegex { pattern, .. }  => format!("method_regex /{}/", pattern),
-        StatusRegex { pattern, .. }  => format!("status_regex /{}/", pattern),
-        SessionLifetime { value, op, .. }  => format!("session_lifetime /{} {}/", op, value),
-        SessionIdle { value, op, .. }  => format!("session_idle /{} {}/", op, value),
-        Size { op, value, field_name } => {
+        StreamRegex { pattern, .. } => format!("stream_regex /{}/", pattern),
+        PathRegex { pattern, .. } => format!("path_regex /{}/", pattern),
+        BodyRegex { pattern, .. } => format!("body_regex /{}/", pattern),
+        HeaderRegex {
+            header_name,
+            pattern,
+            ..
+        } => format!("header_regex {}=/{} /", header_name, pattern),
+        MethodRegex { pattern, .. } => format!("method_regex /{}/", pattern),
+        StatusRegex { pattern, .. } => format!("status_regex /{}/", pattern),
+        SessionLifetime { value, op, .. } => format!("session_lifetime /{} {}/", op, value),
+        SessionIdle { value, op, .. } => format!("session_idle /{} {}/", op, value),
+        Size {
+            op,
+            value,
+            field_name,
+        } => {
             if let Some(h) = field_name {
                 format!("size {} {} (header:{})", op, value, h)
             } else {

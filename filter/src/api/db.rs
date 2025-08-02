@@ -1,16 +1,15 @@
-use std::collections::HashMap;
-use axum::extract::{Query, State};
-use axum::http::StatusCode;
-use axum::Json;
-use serde::Deserialize;
-use serde_json::json;
-use tracing::info;
 use crate::api::auth;
 use crate::api::routes::SharedState;
 use crate::db::query::{db_health, db_stats};
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
-
+use axum::Json;
+use axum::extract::{Query, State};
+use axum::http::StatusCode;
+use serde::Deserialize;
+use serde_json::json;
+use std::collections::HashMap;
+use tracing::info;
 
 ///     API: `GET /db/health`
 ///     method: `db_health_ep`
@@ -19,7 +18,10 @@ pub async fn db_health_ep(
     State((cfg, _registry, db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
-        return (StatusCode::UNAUTHORIZED, Json(json!({"status":"error","errors":[e.to_string()]})));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"status":"error","errors":[e.to_string()]})),
+        );
     }
     match db_health(db.path.clone()).await {
         Ok(s) => (StatusCode::OK, Json(json!({"status":"ok", "data":s}))),
@@ -31,12 +33,13 @@ pub async fn db_health_ep(
                 None,
             );
 
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"status":"error","errors":[e.to_string()]})))
-        },
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"status":"error","errors":[e.to_string()]})),
+            )
+        }
     }
 }
-
-
 
 ///     API: `GET /db/stats`
 ///     method: `db_stats_ep`
@@ -45,7 +48,10 @@ pub async fn db_stats_ep(
     State((cfg, _registry, db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
-        return (StatusCode::UNAUTHORIZED, Json(json!({"status":"error","errors":[e.to_string()]})));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"status":"error","errors":[e.to_string()]})),
+        );
     }
     match db_stats(db.path.clone()).await {
         Ok(v) => (StatusCode::OK, Json(json!({"status":"ok","data":v}))),
@@ -57,17 +63,18 @@ pub async fn db_stats_ep(
                 None,
             );
 
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"status":"error","errors":[e.to_string()]})))
-        },
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"status":"error","errors":[e.to_string()]})),
+            )
+        }
     }
 }
-
 
 #[derive(Deserialize)]
 pub struct ClearQuery {
     token: String,
 }
-
 
 ///     API: `GET /db/clear`
 ///     method: `db_clear_ep`
@@ -88,11 +95,8 @@ pub async fn db_clear_ep(
         Ok(()) => {
             info!("cleared db");
 
-            (
-                StatusCode::OK,
-                Json(json!({"status":"ok"})),
-            )
-        },
+            (StatusCode::OK, Json(json!({"status":"ok"})))
+        }
         Err(e) => {
             sink_ecam::record(
                 Severity::Error,
@@ -101,7 +105,10 @@ pub async fn db_clear_ep(
                 None,
             );
 
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"status":"error","errors":[e.to_string()]})))
-        },
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"status":"error","errors":[e.to_string()]})),
+            )
+        }
     }
 }

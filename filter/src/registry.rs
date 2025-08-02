@@ -1,14 +1,14 @@
-use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use crate::{
+    config::{Config, PortBinding},
+    rules::compile::{CompiledRuleSet, compile_ruleset},
+};
 use anyhow::Result;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use dashmap::DashMap;
 use shared::rules_model::RuleSetRaw;
 use shared::types::Scope;
-use crate::{
-    config::{Config, PortBinding},
-    rules::compile::{compile_ruleset, CompiledRuleSet},
-};
+use std::collections::HashSet;
+use std::sync::{Arc, RwLock};
 
 /// In‑memory runtime object for one public port.
 pub struct PortRuntime {
@@ -57,7 +57,9 @@ pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
 
 fn default_scopes() -> HashSet<Scope> {
     use Scope::*;
-    [Meta, Stream, HttpHeader, HttpPath, HttpBody, HttpMethod, HttpStatus, Timing]
-        .into_iter()
-        .collect()
+    [
+        Meta, Stream, HttpHeader, HttpPath, HttpBody, HttpMethod, HttpStatus, Timing,
+    ]
+    .into_iter()
+    .collect()
 }

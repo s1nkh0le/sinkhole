@@ -1,47 +1,42 @@
-use anyhow::anyhow;
-use tokio::{net::TcpListener, signal};
+use tokio::{net::TcpListener};
 use tracing_subscriber::{fmt, EnvFilter};
+use crate::api::routes;
 
-mod config;
-mod state;
-mod pull;
 mod api;
+mod config;
 mod db;
+mod puller;
+mod state;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     fmt().with_env_filter(EnvFilter::from_default_env()).init();
 
     let cfg = config::load()?;
-    tracing::info!(services = cfg.services.len(), "configuration loaded");
+    let db = db::init(&cfg.controller.db_path)?;
+    let state = state::ControllerState::new(cfg.clone(), db.clone())?;
 
-    let controller_state = state::ControllerState::new(cfg.clone())?;
+    puller::spawn_all_pull_tasks(state.clone(), reqwest::Client::new(), db.clone());
 
-    pull::spawn_all(&cfg, controller_state.clone());
+    let app = routes::build_router(state.clone());
 
-    // Build router via api module
-    let app = api::build_router(controller_state);
+    let bind = std::env::var("CONTROLLER_BIND").unwrap_or_else(|_| "0.0.0.0:7000".into());
+    let listener = TcpListener::bind(&bind).await?;
+    tracing::info!("controller API listening on {bind}");
 
-    // Bind address from env or default
-    let bind = std::env::var("CONTROLLER_BIND")
-        .unwrap_or_else(|_| "0.0.0.0:7000".to_string());
+    let server = axum::serve(listener, app);
 
-    let listener = TcpListener::bind(&bind)
-        .await
-        .map_err(|e| anyhow!("unable to bind controller API on {bind}: '{e}'"))?;
+    tokio::select! {
+        res = server => {
+            res?;
+        }
+        // _ = signal::ctrl_c() => {
+        //     tracing::info!("CTRL-C received – shutting down");
+        // }
+    }
 
-    tracing::info!("controller API listening on {}", bind);
+    let _ = db.tx.send(db::Cmd::Shutdown).await;
 
-    // Graceful shutdown
-    let shutdown = async {
-        signal::ctrl_c().await.expect("install ctrl+c handler");
-        tracing::info!("CTRL+C received, shutting down…");
-        // TODO: flush DB, signal pull tasks to stop, etc.
-    };
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await?;
 
     Ok(())
 }

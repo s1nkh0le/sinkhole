@@ -12,7 +12,9 @@ pub fn now_ns() -> u128 {
 }
 
 pub fn ns_to_hms(ns_since_epoch: u128) -> String {
-    let signed_ns = i128::try_from(ns_since_epoch).map_err(|_| "timestamp out of range").unwrap(); // fixme
+    let signed_ns = i128::try_from(ns_since_epoch)
+        .map_err(|_| "timestamp out of range")
+        .unwrap(); // fixme
 
     let dt = OffsetDateTime::from_unix_timestamp_nanos(signed_ns).expect("ns out of range");
 

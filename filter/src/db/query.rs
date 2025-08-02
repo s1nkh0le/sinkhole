@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde_json::json;
+use std::sync::Arc;
 
 pub async fn fetch_records_since(
     path: Arc<String>,
@@ -15,7 +15,7 @@ pub async fn fetch_records_since(
              FROM records
              WHERE port = ? AND timestamp_ns > ?
              ORDER BY timestamp_ns
-             LIMIT ?"
+             LIMIT ?",
         )?;
         let mut rows = stmt.query(params![port as i64, since_ns, limit as i64])?;
 
@@ -30,7 +30,7 @@ pub async fn fetch_records_since(
         }
         Ok::<_, anyhow::Error>((out, last_ts))
     })
-        .await?
+    .await?
 }
 
 pub async fn fetch_records_filtered(
@@ -46,8 +46,8 @@ pub async fn fetch_records_filtered(
 ) -> anyhow::Result<(Vec<serde_json::Value>, i64)> {
     // Own the strings for 'static closure
     let decision = decision.map(ToOwned::to_owned);
-    let dir      = dir.map(ToOwned::to_owned);
-    let reason   = reason.map(ToOwned::to_owned);
+    let dir = dir.map(ToOwned::to_owned);
+    let reason = reason.map(ToOwned::to_owned);
 
     tokio::task::spawn_blocking(move || {
         use rusqlite::ToSql;
@@ -58,7 +58,7 @@ pub async fn fetch_records_filtered(
         let mut sql = String::from(
             "SELECT timestamp_ns, json
              FROM records
-             WHERE port = ? AND timestamp_ns > ? AND timestamp_ns <= ?"
+             WHERE port = ? AND timestamp_ns > ? AND timestamp_ns <= ?",
         );
 
         // Keep a parallel dbg list just for logging
@@ -82,7 +82,7 @@ pub async fn fetch_records_filtered(
 
         if let Some(ref d) = dir {
             match d.as_str() {
-                "in"  => {
+                "in" => {
                     sql.push_str(" AND inbound = 1");
                     dbg_params.push("<inbound=1>".into());
                 }
@@ -100,13 +100,17 @@ pub async fn fetch_records_filtered(
                     SELECT 1
                     FROM json_each(records.json, '$.drop_reasons')
                     WHERE json_extract(json_each.value, '$.kind') = ?
-                  )"
+                  )",
             );
             params.push(Box::new(r.clone()));
             dbg_params.push(r.clone());
         }
 
-        sql.push_str(if asc { " ORDER BY timestamp_ns ASC" } else { " ORDER BY timestamp_ns DESC" });
+        sql.push_str(if asc {
+            " ORDER BY timestamp_ns ASC"
+        } else {
+            " ORDER BY timestamp_ns DESC"
+        });
         sql.push_str(" LIMIT ? ");
         params.push(Box::new(limit as i64));
         dbg_params.push(limit.to_string());
@@ -141,9 +145,8 @@ pub async fn fetch_records_filtered(
 
         Ok::<_, anyhow::Error>((out, last_ts))
     })
-        .await?
+    .await?
 }
-
 
 pub async fn db_health(path: Arc<String>) -> anyhow::Result<String> {
     tokio::task::spawn_blocking(move || {
@@ -153,11 +156,14 @@ pub async fn db_health(path: Arc<String>) -> anyhow::Result<String> {
         let mut res = String::new();
         while let Some(r) = rows.next()? {
             let s: String = r.get(0)?;
-            if !res.is_empty() { res.push_str(", "); }
+            if !res.is_empty() {
+                res.push_str(", ");
+            }
             res.push_str(&s);
         }
         Ok(res)
-    }).await?
+    })
+    .await?
 }
 
 pub async fn db_stats(path: Arc<String>) -> anyhow::Result<serde_json::Value> {
@@ -165,11 +171,15 @@ pub async fn db_stats(path: Arc<String>) -> anyhow::Result<serde_json::Value> {
         let conn = Connection::open(&*path)?;
 
         let row_count: i64 = conn.query_row("SELECT COUNT(*) FROM records", [], |r| r.get(0))?;
-        let first_ts: Option<i64> = conn.query_row("SELECT MIN(timestamp_ns) FROM records", [], |r| r.get(0)).ok();
-        let last_ts: Option<i64>  = conn.query_row("SELECT MAX(timestamp_ns) FROM records", [], |r| r.get(0)).ok();
+        let first_ts: Option<i64> = conn
+            .query_row("SELECT MIN(timestamp_ns) FROM records", [], |r| r.get(0))
+            .ok();
+        let last_ts: Option<i64> = conn
+            .query_row("SELECT MAX(timestamp_ns) FROM records", [], |r| r.get(0))
+            .ok();
 
         let page_count: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
-        let page_size:  i64 = conn.query_row("PRAGMA page_size",  [], |r| r.get(0))?;
+        let page_size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
         let file_bytes = page_count * page_size;
 
         Ok(json!({
@@ -178,9 +188,9 @@ pub async fn db_stats(path: Arc<String>) -> anyhow::Result<serde_json::Value> {
             "last_ts": last_ts,
             "file_bytes": file_bytes
         }))
-    }).await?
+    })
+    .await?
 }
-
 
 pub async fn clear_db(path: Arc<String>) -> anyhow::Result<()> {
     tokio::task::spawn_blocking(move || {
@@ -189,9 +199,9 @@ pub async fn clear_db(path: Arc<String>) -> anyhow::Result<()> {
             "DELETE FROM records;
              DELETE FROM port_rulesets;
              DELETE FROM port_configs;
-             VACUUM;"
+             VACUUM;",
         )?;
         Ok::<_, anyhow::Error>(())
     })
-        .await?
+    .await?
 }

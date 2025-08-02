@@ -4,23 +4,23 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::{anyhow, Result};
-use bytes::BytesMut;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-};
-use shared::sink_model::NetworkOrigin;
-use shared::sink_model::NetworkOrigin::{ClientToFilter, Filter};
-use shared::types::Decision;
-use shared::utils::time::now_ns;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use crate::observability::sinks::{sink_ecam, sink_telemetry};
 use crate::{
     config::{Config, PortBinding},
-    engine::dispatcher::{evaluate as eval_rules, MessageCtx},
+    engine::dispatcher::{MessageCtx, evaluate as eval_rules},
     http::parse_http,
     registry::{PortRegistry, PortRuntime},
+};
+use anyhow::{Result, anyhow};
+use bytes::BytesMut;
+use shared::sink_model::NetworkOrigin;
+use shared::sink_model::NetworkOrigin::{ClientToFilter, Filter};
+use shared::types::Decision;
+use shared::utils::time::now_ns;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
 };
 
 static CONN_ID: AtomicU64 = AtomicU64::new(1);
@@ -52,18 +52,16 @@ pub(crate) async fn run_proxy_for_port(
     pb: PortBinding,
 ) -> Result<()> {
     let bind_addr = SocketAddr::from(([0, 0, 0, 0], pb.public));
-    let listener = TcpListener::bind(bind_addr)
-        .await
-        .map_err(|e| {
-            sink_ecam::record(
-                Severity::Error,
-                Origin::Network(ClientToFilter(pb.public)),
-                format!("unable to spawn proxy on address {bind_addr}: '{e}'"),
-                None,
-            );
+    let listener = TcpListener::bind(bind_addr).await.map_err(|e| {
+        sink_ecam::record(
+            Severity::Error,
+            Origin::Network(ClientToFilter(pb.public)),
+            format!("unable to spawn proxy on address {bind_addr}: '{e}'"),
+            None,
+        );
 
-            anyhow!("unable to spawn proxy on address {bind_addr}: '{e}'")
-        })?;
+        anyhow!("unable to spawn proxy on address {bind_addr}: '{e}'")
+    })?;
 
     tracing::info!(
         "proxy listening on {} → {}:{}",
@@ -315,9 +313,12 @@ where
         if inbound {
             tracing::trace!("[conn_id={:04}] read {} bytes from client", conn_id, read_n);
         } else {
-            tracing::trace!("[conn_id={:04}] read {} bytes from service", conn_id, read_n);
+            tracing::trace!(
+                "[conn_id={:04}] read {} bytes from service",
+                conn_id,
+                read_n
+            );
         }
-
 
         // complete HTTP message?
         if let Ok(Some((parsed, used))) = parse_http(&buf, inbound) {

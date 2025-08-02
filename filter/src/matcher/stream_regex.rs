@@ -1,4 +1,4 @@
-use super::{regex_core::RegexCore, MatchInput, MatchOutputCore, Matcher};
+use super::{MatchInput, MatchOutputCore, Matcher, regex_core::RegexCore};
 use shared::types::Scope;
 use std::str;
 

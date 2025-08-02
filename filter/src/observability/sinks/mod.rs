@@ -1,16 +1,19 @@
-use std::sync::atomic::AtomicBool;
-use crate::db::actor::DbHandle;
 use crate::config::Config;
+use crate::db::actor::DbHandle;
+use std::sync::atomic::AtomicBool;
 
-pub mod sink_telemetry;
 pub mod sink_ecam;
+pub mod sink_telemetry;
 
 struct TelemetryTargets {
     sinks_stdout: AtomicBool,
-    sinks_emit: AtomicBool
+    sinks_emit: AtomicBool,
 }
 
-const TARGETS: TelemetryTargets = TelemetryTargets { sinks_stdout: AtomicBool::new(true), sinks_emit: AtomicBool::new(true) };
+const TARGETS: TelemetryTargets = TelemetryTargets {
+    sinks_stdout: AtomicBool::new(true),
+    sinks_emit: AtomicBool::new(true),
+};
 
 pub fn init_all(cfg: &Config, db_handle: DbHandle) {
     // fixme

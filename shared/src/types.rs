@@ -32,25 +32,41 @@ impl Decision {
     pub fn as_str(&self) -> &'static str {
         match self {
             Decision::Allow => "allow",
-            Decision::Drop  => "drop",
+            Decision::Drop => "drop",
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum MatchStatus { Satisfied, NotSatisfied, Skipped, Error }
+pub enum MatchStatus {
+    Satisfied,
+    NotSatisfied,
+    Skipped,
+    Error,
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum Mode { Blacklist, WhitelistAll, WhitelistAny }
+pub enum Mode {
+    Blacklist,
+    WhitelistAll,
+    WhitelistAny,
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-pub enum Direction { Inbound, Outbound }
+pub enum Direction {
+    Inbound,
+    Outbound,
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum RuleDirection { Inbound, Outbound, Both }
+pub enum RuleDirection {
+    Inbound,
+    Outbound,
+    Both,
+}
 
 impl RuleDirection {
     pub fn matches(&self, rt: Direction) -> bool {

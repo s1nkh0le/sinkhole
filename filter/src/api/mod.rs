@@ -1,9 +1,9 @@
 pub mod auth;
-pub mod routes;
-mod health;
 mod config;
-mod ruleset;
-mod stats;
-mod logs;
 mod db;
 mod ecam;
+mod health;
+mod logs;
+pub mod routes;
+mod ruleset;
+mod stats;

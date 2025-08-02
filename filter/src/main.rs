@@ -1,33 +1,29 @@
-
-use anyhow::{anyhow, Result};
-use tokio::{net::TcpListener, signal};
-use tracing::{error, info};
-use tracing_subscriber::{fmt, EnvFilter};
-use observability::sinks;
-use crate::proxy::run_all_ports;
-use crate::db::actor::{init_db, DbCmd};
+use crate::db::actor::{DbCmd, init_db};
 use crate::db::hydration::hydrate_registry;
 use crate::observability::summary::dump_port_state;
+use crate::proxy::run_all_ports;
+use anyhow::{Result, anyhow};
+use observability::sinks;
+use tokio::{net::TcpListener, signal};
+use tracing::{error, info};
+use tracing_subscriber::{EnvFilter, fmt};
 
-mod config;
 mod api;
-mod proxy;
-mod observability;
-mod http;
-mod rules;
-mod registry;
-mod matcher;
-mod engine;
+mod config;
 mod db;
+mod engine;
+mod http;
+mod matcher;
+mod observability;
+mod proxy;
+mod registry;
+mod rules;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let log_filter = EnvFilter::new("trace");
 
-    fmt()
-        .with_env_filter(log_filter)
-        .with_target(false)
-        .init();
+    fmt().with_env_filter(log_filter).with_target(false).init();
 
     info!("starting sinkhole filter...");
 
@@ -36,11 +32,14 @@ async fn main() -> Result<()> {
     info!("effective env config: {}", serde_json::to_string(&cfg)?);
 
     let registry = registry::build_registry(&cfg)?;
-    info!("registry built, port mappings: [{}]", cfg.ports
-        .iter()
-        .map(|b| b.to_string())
-        .collect::<Vec<_>>()
-        .join(", "));
+    info!(
+        "registry built, port mappings: [{}]",
+        cfg.ports
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
     // Database
     let db_handle = init_db(&cfg.db_path)?;
@@ -56,7 +55,6 @@ async fn main() -> Result<()> {
     } else {
         info!("DB hydration is disabled");
     }
-
 
     // Init sinks
     sinks::init_all(&cfg, db_handle.clone());
@@ -78,7 +76,6 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow!("unable to bind control API on address {bind}: '{e}'"))?;
     info!("control API listening on {}", bind);
 
-
     // graceful shutdown
     let shutdown = async move {
         signal::ctrl_c().await.expect("install ctrl+c handler");
@@ -87,8 +84,7 @@ async fn main() -> Result<()> {
     };
 
     // server
-    let server = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown);
+    let server = axum::serve(listener, app).with_graceful_shutdown(shutdown);
 
     // run server and wait
     info!("running!");

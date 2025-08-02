@@ -13,8 +13,8 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
     fn check_id(id: &str, ids: &mut HashSet<String>, errs: &mut Vec<String>) {
         if id.len() > 64
             || !id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
         {
             errs.push(format!("invalid id '{}'", id));
         }
@@ -28,7 +28,7 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
         use MatcherDef::*;
         match (scope, m) {
             (Scope::Stream, StreamRegex { .. }) => true,
-            
+
             (Scope::HttpPath, PathRegex { .. }) => true,
             (Scope::HttpBody, BodyRegex { .. }) => true,
             (Scope::HttpHeader, HeaderRegex { .. }) => true,
@@ -36,7 +36,7 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             (Scope::HttpStatus, StatusRegex { .. }) => true,
 
             (Scope::Timing, SessionLifetime { .. }) => true,
-            (Scope::Timing, SessionIdle { .. })     => true,
+            (Scope::Timing, SessionIdle { .. }) => true,
 
             // Size is universal, except when checking the status code
             (Scope::HttpStatus, Size { .. }) => false,
@@ -78,10 +78,15 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             ));
         }
 
-        if matches!(m.matcher, MatcherDef::SessionLifetime { .. } | MatcherDef::SessionIdle { .. })
-            && m.direction != RuleDirection::Both
+        if matches!(
+            m.matcher,
+            MatcherDef::SessionLifetime { .. } | MatcherDef::SessionIdle { .. }
+        ) && m.direction != RuleDirection::Both
         {
-            errs.push(format!("markers[id={}]: timing scope requires direction='both'", m.id));
+            errs.push(format!(
+                "markers[id={}]: timing scope requires direction='both'",
+                m.id
+            ));
         }
 
         let ctx = format!("markers[id={}]", m.id);
@@ -114,13 +119,18 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
                 f.id
             ));
         }
-        
-        if matches!(f.matcher, MatcherDef::SessionLifetime { .. } | MatcherDef::SessionIdle { .. })
-            && f.direction != RuleDirection::Both
+
+        if matches!(
+            f.matcher,
+            MatcherDef::SessionLifetime { .. } | MatcherDef::SessionIdle { .. }
+        ) && f.direction != RuleDirection::Both
         {
-            errs.push(format!("filters[id={}]: timing scope requires direction='both'", f.id));
+            errs.push(format!(
+                "filters[id={}]: timing scope requires direction='both'",
+                f.id
+            ));
         }
-        
+
         let ctx = format!("filters[id={}]", f.id);
         if let MatcherDef::Size { field_name, .. } = &f.matcher {
             validate_size_field(f.scope, field_name.as_deref(), &ctx, &mut errs);
@@ -137,23 +147,20 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
     errs
 }
 
-
-
-fn validate_size_field(
-    scope: Scope,
-    field_name: Option<&str>,
-    ctx: &str,
-    errs: &mut Vec<String>,
-) {
+fn validate_size_field(scope: Scope, field_name: Option<&str>, ctx: &str, errs: &mut Vec<String>) {
     match scope {
         Scope::HttpHeader => {
             if field_name.is_none() || field_name.unwrap().trim().is_empty() {
-                errs.push(format!("{ctx}.matcher.field_name: required for size on http.header"));
+                errs.push(format!(
+                    "{ctx}.matcher.field_name: required for size on http.header"
+                ));
             }
         }
         _ => {
             if field_name.is_some() {
-                errs.push(format!("{ctx}.matcher.field_name: only allowed for scope=http.header"));
+                errs.push(format!(
+                    "{ctx}.matcher.field_name: only allowed for scope=http.header"
+                ));
             }
         }
     }

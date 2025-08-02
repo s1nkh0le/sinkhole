@@ -1,11 +1,14 @@
-use anyhow::{anyhow, Result};
-use bytes::{Bytes};
-use httparse::{Header, Request};
 use crate::http::HttpMessage;
-use crate::http::parser::{content_length, HttpPart, ParsedHttp};
+use crate::http::parser::{HttpPart, ParsedHttp, content_length};
+use anyhow::{Result, anyhow};
+use bytes::Bytes;
+use httparse::{Header, Request};
 
 pub fn try_parse_request(buf: &[u8]) -> Result<Option<(ParsedHttp, usize)>> {
-    let mut headers = [Header { name: "", value: &[] }; 64];
+    let mut headers = [Header {
+        name: "",
+        value: &[],
+    }; 64];
     let mut req = Request::new(&mut headers);
 
     let status = match req.parse(buf) {
@@ -27,12 +30,16 @@ pub fn try_parse_request(buf: &[u8]) -> Result<Option<(ParsedHttp, usize)>> {
         None => return Ok(None),
     };
 
-    let hdrs = req.headers.iter().map(|h| {
-        (
-            h.name.to_ascii_lowercase(),
-            String::from_utf8_lossy(h.value).into_owned(),
-        )
-    }).collect::<Vec<_>>();
+    let hdrs = req
+        .headers
+        .iter()
+        .map(|h| {
+            (
+                h.name.to_ascii_lowercase(),
+                String::from_utf8_lossy(h.value).into_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
 
     let content_len = content_length(&hdrs).unwrap_or(0);
     let total_needed = header_end + content_len;
@@ -52,5 +59,11 @@ pub fn try_parse_request(buf: &[u8]) -> Result<Option<(ParsedHttp, usize)>> {
         truncated: false,
     };
 
-    Ok(Some((ParsedHttp { part: HttpPart::Request, msg }, total_needed)))
+    Ok(Some((
+        ParsedHttp {
+            part: HttpPart::Request,
+            msg,
+        },
+        total_needed,
+    )))
 }
