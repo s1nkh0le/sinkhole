@@ -12,6 +12,8 @@ use crate::{
 const ECAM_INTERVAL: Duration = Duration::from_secs(5);
 const LOGS_INTERVAL: Duration = Duration::from_secs(5);
 
+const WATCHDOG: Duration = Duration::from_millis(2500);
+
 
 /// Spawn all background pullers once, at startup.
 pub fn spawn_all_pull_tasks(state: ControllerState, http: Client, db: db::DbHandle) {
@@ -28,8 +30,12 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
     let mut next_ecam_at = Instant::now();
     let mut next_logs_at = Instant::now();
 
+    let mut sync_iter = 0;
+
     loop {
         let now = Instant::now();
+        debug!("[pull_loop(svc_id={})] sync iteration {}", svc_id, sync_iter);
+        sync_iter += 1;
 
         // ── snapshot immutable service config ───────────────
         let (base_url, token, port_snap, ecam_since) = {
@@ -59,12 +65,12 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
                 Ok((mut events, next_since)) => {
                     if !events.is_empty() {
                         debug!("[pull_loop(svc_id={}) -> ecam cache update] got {} new ecam entries: {:?}", svc_id, events.len(), events);
-                        db::insert_ecam(&db, &svc_id, &events).await;
+                        insert_ecam(&db, &svc_id, &events).await;
                         events.clear(); // drop big vec ASAP
                     } else {
                         debug!("[pull_loop(svc_id={}) -> ecam cache update] got no new ecam entries since {}", svc_id, ecam_since);
                     }
-                    // update cursor
+
                     state
                         .write()
                         .services
@@ -85,7 +91,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
                     Ok((mut recs, next_since)) => {
                         if !recs.is_empty() {
                             debug!("[pull_loop(svc_id={}) -> log cache update] got {} new logs: {:?}", svc_id, recs.len(), recs);
-                            db::insert_logs(&db, &svc_id, *port, &recs).await;
+                            insert_logs(&db, &svc_id, *port, &recs).await;
                             recs.clear();
                         } else {
                             debug!("[pull_loop(svc_id={}) -> log cache update] no new logs since {}", svc_id, since);
@@ -104,7 +110,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
             next_logs_at = Instant::now() + LOGS_INTERVAL;
         }
 
-        sleep(Duration::from_millis(200)).await;
+        sleep(WATCHDOG).await;
     }
 }
 
@@ -160,6 +166,8 @@ use serde::Deserialize;
 use tracing::log::{debug, info};
 use shared::eval_record::EvaluationRecord;
 use shared::sink_model::EcamEvent;
+use crate::db::insertion::{insert_ecam, insert_logs};
+use crate::observability::summary::dump_controller_state;
 
 #[derive(Deserialize)]
 struct FilterEcamEnvelope {

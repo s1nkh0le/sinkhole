@@ -1,0 +1,14 @@
+use shared::eval_record::EvaluationRecord;
+use shared::sink_model::EcamEvent;
+use crate::db::{Cmd, DbHandle};
+
+// async helpers used by puller
+pub async fn insert_ecam(db: &DbHandle, svc: &str, v: &[EcamEvent]) {
+    let _ = db.tx.send(Cmd::InsertEcam(v.to_vec(), svc.into())).await;
+}
+pub async fn insert_logs(db: &DbHandle, svc: &str, port: u16, v: &[EvaluationRecord]) {
+    let _ = db
+        .tx
+        .send(Cmd::InsertLogs(v.to_vec(), svc.into(), port))
+        .await;
+}

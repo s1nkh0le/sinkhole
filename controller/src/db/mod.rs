@@ -1,5 +1,7 @@
 pub mod query;
 pub mod boot;
+pub mod aggregate;
+pub mod insertion;
 
 use anyhow::Result;
 use rusqlite::{params, Connection};
@@ -73,13 +75,3 @@ pub fn init(path: &str) -> Result<DbHandle> {
     Ok(DbHandle { tx, path })
 }
 
-// async helpers used by puller
-pub async fn insert_ecam(db: &DbHandle, svc: &str, v: &[EcamEvent]) {
-    let _ = db.tx.send(Cmd::InsertEcam(v.to_vec(), svc.into())).await;
-}
-pub async fn insert_logs(db: &DbHandle, svc: &str, port: u16, v: &[EvaluationRecord]) {
-    let _ = db
-        .tx
-        .send(Cmd::InsertLogs(v.to_vec(), svc.into(), port))
-        .await;
-}

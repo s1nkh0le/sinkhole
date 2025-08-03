@@ -1,6 +1,7 @@
 use rusqlite::{Connection, params};
 use serde_json::json;
 use std::sync::Arc;
+use tracing::log::trace;
 
 pub async fn fetch_records_since(
     path: Arc<String>,
@@ -136,12 +137,12 @@ pub async fn fetch_records_filtered(
             last_ts = ts;
         }
 
-        tracing::debug!(
-            target: "db.logs",
-            rows = out.len(),
-            last_ts,
-            "logs query result"
-        );
+        // trace!(
+        //     target: "db.logs",
+        //     rows = out.len(),
+        //     last_ts,
+        //     "logs query result"
+        // );
 
         Ok::<_, anyhow::Error>((out, last_ts))
     })

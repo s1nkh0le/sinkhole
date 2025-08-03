@@ -5,8 +5,10 @@ use serde::Deserialize;
 use tokio::{sync::Semaphore, time::{sleep, timeout, Instant}};
 use axum::http::StatusCode;
 use tracing::log::{debug, info};
+use tracing::warn;
 use crate::state::{ControllerState};
 use shared::rules_model::{PortInfo, RuleSetRaw};
+use crate::observability::summary::dump_controller_state;
 
 const REQ_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -135,6 +137,8 @@ async fn state_sync_loop(
                                 // rs_ver should match new_ver; we still trust the endpoint
                                 let mut w = state.write();
                                 if let Some(svc) = w.services.get_mut(&svc_id) {
+                                    debug!("[state_sync_loop(svc_id={}), port={}] updated config {}", svc_id, port, rs.clone());
+
                                     let p = svc.ports.entry(port).or_insert_with(crate::state::Port::new);
                                     p.ruleset = Some(rs);
                                     p.ruleset_version = Some(rs_ver);
@@ -222,7 +226,7 @@ async fn fetch_port_ruleset(
     port: u16,
 ) -> Result<(RuleSetRaw, String)> {
     let url = format!("{base}/ports/{port}/ruleset");
-    debug!("[fetch_port_ruleset()] request to {}?token={}", url, token);
+    debug!("[fetch_port_ruleset({})] request to {}?token={}", port, url, token);
 
     let fut = http.get(&url).query(&[("token", token)]).send();
     let resp = timeout(REQ_TIMEOUT, fut).await??;
@@ -233,6 +237,11 @@ async fn fetch_port_ruleset(
     if env.status != "ok" {
         anyhow::bail!("GET {url} status={}", env.status);
     }
+
+    if env.data.ruleset.filters.is_empty() && env.data.ruleset.markers.is_empty() {
+        warn!("[fetch_port_ruleset({})] incoming port ruleset empty ({})", port, env.data.version);
+    }
+
     Ok((env.data.ruleset, env.data.version))
 }
 

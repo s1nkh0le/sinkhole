@@ -8,6 +8,7 @@ mod db;
 mod puller;
 mod state;
 mod sync;
+mod observability;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

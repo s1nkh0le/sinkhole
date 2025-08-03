@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use axum::{Json, extract::Query};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::log::debug;
 
 #[derive(Debug, Serialize)]
 pub struct ApiRespEcam<'a> {
@@ -41,6 +42,9 @@ pub async fn get_ecam(
 
     // sort ascending
     events.sort_by_key(|e| e.ts_ns);
+
+    // print
+    debug!("[GET /ecam, get_ecam()]: got {} ecam events: {:?}", events.clone().len(), events.clone());
 
     // compute next_since = (max + 1)  or stick to caller’s since_ns
     let next_since = events.last().map(|e| e.ts_ns + 1).unwrap_or(since_ns);

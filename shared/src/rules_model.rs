@@ -1,5 +1,7 @@
+use std::fmt;
 use crate::types::{Mode, RuleDirection, Scope};
 use serde::{Deserialize, Serialize};
+use strum_macros::Display;
 
 fn default_enabled() -> bool {
     true
@@ -104,4 +106,11 @@ pub struct RuleSetRaw {
     pub comment: Option<String>,
     pub markers: Vec<MarkerDef>,
     pub filters: Vec<FilterDef>,
+}
+
+impl fmt::Display for RuleSetRaw {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // use the Debug impl you already have:
+        write!(f, "{:#?}", self)
+    }
 }

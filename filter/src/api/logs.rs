@@ -8,6 +8,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::json;
+use tracing::log::debug;
 
 #[derive(Deserialize, Debug)]
 pub struct LogsQuery {
@@ -134,17 +135,20 @@ pub async fn get_logs(
                 .and_then(|r| r.get("timestamp_ns").and_then(|v| v.as_i64()))
                 .map(|ts| ts + 1)
                 .unwrap_or(since);
+            {
+                debug!("[GET /ports/{port}/logs, get_logs()]: got {} records: {:?}", records.len(), records);
 
-            (
-                StatusCode::OK,
-                Json(json!({
-                    "status": "ok",
-                    "data": {
-                        "records": records,
-                        "next_since": next_since
-                    }
-                })),
-            )
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "status": "ok",
+                        "data": {
+                            "records": records,
+                            "next_since": next_since
+                        }
+                    })),
+                )
+            }
         }
         Err(e) => {
             sink_ecam::record(
