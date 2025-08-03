@@ -2,6 +2,8 @@
 // Ports
 // ──────────────────────────────────────────────────────────────
 
+use crate::api::util::{ensure_ports_loaded, ensure_service_exists, ensure_service_port_exists};
+use crate::state::ControllerState;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -9,8 +11,6 @@ use reqwest::Client;
 use serde::Serialize;
 use serde_json::json;
 use shared::rules_model::PortInfo;
-use crate::api::util::{ensure_ports_loaded, ensure_service_exists, ensure_service_port_exists};
-use crate::state::ControllerState;
 
 #[derive(Serialize)]
 struct PortRow {
@@ -38,21 +38,25 @@ pub async fn list_ports(
 
     let g = state.read();
     let Some(s) = g.services.get(&svc) else {
-        return (StatusCode::NOT_FOUND, Json(json!({"status":"error","errors":["unknown service"]})));
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"status":"error","errors":["unknown service"]})),
+        );
     };
 
-    let rows: Vec<PortRow> = s.ports.iter().map(|(p, port)| PortRow {
-        port: *p,
-        has_info: port.info.is_some(),
-        has_ruleset: port.ruleset.is_some(),
-        next_logs_since: port.next_logs_since,
-    }).collect();
+    let rows: Vec<PortRow> = s
+        .ports
+        .iter()
+        .map(|(p, port)| PortRow {
+            port: *p,
+            has_info: port.info.is_some(),
+            has_ruleset: port.ruleset.is_some(),
+            next_logs_since: port.next_logs_since,
+        })
+        .collect();
 
     (StatusCode::OK, Json(json!({"status":"ok","data": rows})))
 }
-
-
-
 
 // ──────────────────────────────────────────────────────────────
 // Per-port CONFIG (proxy to filter)
@@ -73,7 +77,6 @@ pub async fn get_port_config(
         return resp;
     }
 
-
     let url = format!("{}/ports/{}/config", svc_cfg.base_url, port);
     let client = Client::new();
     match client
@@ -83,7 +86,8 @@ pub async fn get_port_config(
         .await
     {
         Ok(resp) => {
-            let code = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let code =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             match resp.json::<serde_json::Value>().await {
                 Ok(body) => (code, Json(body)),
                 Err(e) => (
@@ -115,7 +119,6 @@ pub async fn put_port_config(
         return resp;
     }
 
-
     let url = format!("{}/ports/{}/config", svc_cfg.base_url, port);
     let client = reqwest::Client::new();
     match client
@@ -126,7 +129,8 @@ pub async fn put_port_config(
         .await
     {
         Ok(resp) => {
-            let code = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let code =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             match resp.json::<serde_json::Value>().await {
                 Ok(body) => (code, Json(body)),
                 Err(e) => (
@@ -142,8 +146,6 @@ pub async fn put_port_config(
     }
 }
 
-
-
 // ──────────────────────────────────────────────────────────────
 // Port info (proxy GET /ports/{port}/config on filter)
 // ──────────────────────────────────────────────────────────────
@@ -157,7 +159,13 @@ pub async fn get_port_info(
     }
 
     // If we already have it, return cached
-    if let Some(pi) = state.read().services.get(&svc).and_then(|s| s.ports.get(&port)).and_then(|p| p.info.clone()) {
+    if let Some(pi) = state
+        .read()
+        .services
+        .get(&svc)
+        .and_then(|s| s.ports.get(&port))
+        .and_then(|p| p.info.clone())
+    {
         return (StatusCode::OK, Json(json!({"status":"ok","data": pi})));
     }
 
@@ -172,30 +180,52 @@ pub async fn get_port_info(
     let resp = Client::new()
         .get(&url)
         .query(&[("token", token.as_str())])
-        .send().await;
+        .send()
+        .await;
 
     let Ok(resp) = resp else {
-        return (StatusCode::BAD_GATEWAY, Json(json!({"status":"error","errors":["filter unreachable"]})));
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"status":"error","errors":["filter unreachable"]})),
+        );
     };
 
     if !resp.status().is_success() {
-        return (StatusCode::BAD_GATEWAY, Json(json!({"status":"error","errors":[format!("filter returned {}", resp.status())]})));
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"status":"error","errors":[format!("filter returned {}", resp.status())]})),
+        );
     }
 
-    let env = resp.json::<serde_json::Value>().await.unwrap_or(json!({"status":"error"}));
+    let env = resp
+        .json::<serde_json::Value>()
+        .await
+        .unwrap_or(json!({"status":"error"}));
     if env.get("status") != Some(&json!("ok")) {
-        return (StatusCode::BAD_GATEWAY, Json(json!({"status":"error","errors":["filter returned non-ok"]})));
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"status":"error","errors":["filter returned non-ok"]})),
+        );
     }
 
     // Expect {"status":"ok","data":{...PortInfo...}}
     let pi: PortInfo = serde_json::from_value(env.get("data").cloned().unwrap_or(json!({})))
         .map_err(|e| e.to_string())
-        .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"status":"error","errors":[e]}))))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"status":"error","errors":[e]})),
+            )
+        })
         .unwrap();
 
     // cache
-    state.write().services.get_mut(&svc).and_then(|s| s.ports.get_mut(&port)).map(|p| p.info = Some(pi.clone()));
+    state
+        .write()
+        .services
+        .get_mut(&svc)
+        .and_then(|s| s.ports.get_mut(&port))
+        .map(|p| p.info = Some(pi.clone()));
 
     (StatusCode::OK, Json(json!({"status":"ok","data": pi})))
 }
-

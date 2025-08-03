@@ -1,10 +1,10 @@
+use crate::db;
+use crate::state::ControllerState;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
-use crate::db;
-use crate::state::ControllerState;
 
 #[derive(Deserialize, Debug)]
 pub struct RecordsQuery {
@@ -60,7 +60,7 @@ pub async fn get_records(
     let join_res = tokio::task::spawn_blocking(move || {
         db::query::load_records_agg(&db.path, svc.as_deref(), port, since, until, limit, asc)
     })
-        .await;
+    .await;
 
     match join_res {
         Ok(Ok((records, next_since))) => (

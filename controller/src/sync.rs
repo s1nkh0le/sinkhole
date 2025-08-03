@@ -1,14 +1,17 @@
-use std::{collections::HashSet, mem, time::Duration};
+use crate::observability::summary::dump_controller_state;
+use crate::state::ControllerState;
 use anyhow::{Context, Result};
+use axum::http::StatusCode;
 use reqwest::Client;
 use serde::Deserialize;
-use tokio::{sync::Semaphore, time::{sleep, timeout, Instant}};
-use axum::http::StatusCode;
+use shared::rules_model::{PortInfo, RuleSetRaw};
+use std::{collections::HashSet, mem, time::Duration};
+use tokio::{
+    sync::Semaphore,
+    time::{sleep, timeout, Instant},
+};
 use tracing::log::{debug, info};
 use tracing::warn;
-use crate::state::{ControllerState};
-use shared::rules_model::{PortInfo, RuleSetRaw};
-use crate::observability::summary::dump_controller_state;
 
 const REQ_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -32,7 +35,10 @@ async fn state_sync_loop(
     interval: Duration,
     concurrency: usize,
 ) {
-    info!("[state_sync_loop(svc_id={})] starting periodic sync", svc_id);
+    info!(
+        "[state_sync_loop(svc_id={})] starting periodic sync",
+        svc_id
+    );
 
     let sem = std::sync::Arc::new(Semaphore::new(concurrency.max(1)));
     let mut next_at = Instant::now();
@@ -56,8 +62,10 @@ async fn state_sync_loop(
         };
 
         sync_iter += 1;
-        debug!("[state_sync_loop(svc_id={})] sync iteration {} for service {}", svc_id, sync_iter, base_url);
-
+        debug!(
+            "[state_sync_loop(svc_id={})] sync iteration {} for service {}",
+            svc_id, sync_iter, base_url
+        );
 
         // 1) Discover all ports and their PortInfo
         match fetch_ports_info(&http, &base_url, &token).await {
@@ -69,7 +77,10 @@ async fn state_sync_loop(
                 ports.sort_unstable();
 
                 // 1) Debug-print the Vec:
-                debug!("[state_sync_loop(svc_id={})] discovered ports: {:?}. Checking hashes", svc_id, ports);
+                debug!(
+                    "[state_sync_loop(svc_id={})] discovered ports: {:?}. Checking hashes",
+                    svc_id, ports
+                );
 
                 // Pre-write: update infos and figure out which ports need ruleset refresh
                 let to_refresh: Vec<(u16, String)> = {
@@ -86,7 +97,10 @@ async fn state_sync_loop(
 
                     // Update info snapshots
                     for pi in &port_infos {
-                        let p = svc.ports.entry(pi.public).or_insert_with(crate::state::Port::new);
+                        let p = svc
+                            .ports
+                            .entry(pi.public)
+                            .or_insert_with(crate::state::Port::new);
                         p.info = Some(pi.clone());
 
                         // Initialize per-port log cursor if still unset:
@@ -112,13 +126,14 @@ async fn state_sync_loop(
                     to_refresh
                 };
 
-
                 if to_refresh.is_empty() {
                     debug!("[state_sync_loop(svc_id={})] no ports to refresh", svc_id);
                 } else {
-                    debug!("[state_sync_loop(svc_id={})] ports to refresh: {:?}", svc_id, to_refresh);
+                    debug!(
+                        "[state_sync_loop(svc_id={})] ports to refresh: {:?}",
+                        svc_id, to_refresh
+                    );
                 }
-
 
                 // 2) Fetch rulesets for ports that changed (bounded concurrency)
                 let mut tasks = Vec::with_capacity(to_refresh.len());
@@ -137,9 +152,17 @@ async fn state_sync_loop(
                                 // rs_ver should match new_ver; we still trust the endpoint
                                 let mut w = state.write();
                                 if let Some(svc) = w.services.get_mut(&svc_id) {
-                                    debug!("[state_sync_loop(svc_id={}), port={}] updated config {}", svc_id, port, rs.clone());
+                                    debug!(
+                                        "[state_sync_loop(svc_id={}), port={}] updated config {}",
+                                        svc_id,
+                                        port,
+                                        rs.clone()
+                                    );
 
-                                    let p = svc.ports.entry(port).or_insert_with(crate::state::Port::new);
+                                    let p = svc
+                                        .ports
+                                        .entry(port)
+                                        .or_insert_with(crate::state::Port::new);
                                     p.ruleset = Some(rs);
                                     p.ruleset_version = Some(rs_ver);
                                 }
@@ -191,10 +214,7 @@ async fn fetch_ports_info(http: &Client, base: &str, token: &str) -> Result<Vec<
     let url = format!("{base}/ports");
     debug!("[fetch_ports_info()] request to {}?token={}", url, token);
 
-    let fut = http
-        .get(&url)
-        .query(&[("token", token)])
-        .send();
+    let fut = http.get(&url).query(&[("token", token)]).send();
 
     let resp = timeout(REQ_TIMEOUT, fut).await??;
     if resp.status() != StatusCode::OK {
@@ -226,7 +246,10 @@ async fn fetch_port_ruleset(
     port: u16,
 ) -> Result<(RuleSetRaw, String)> {
     let url = format!("{base}/ports/{port}/ruleset");
-    debug!("[fetch_port_ruleset({})] request to {}?token={}", port, url, token);
+    debug!(
+        "[fetch_port_ruleset({})] request to {}?token={}",
+        port, url, token
+    );
 
     let fut = http.get(&url).query(&[("token", token)]).send();
     let resp = timeout(REQ_TIMEOUT, fut).await??;
@@ -239,7 +262,10 @@ async fn fetch_port_ruleset(
     }
 
     if env.data.ruleset.filters.is_empty() && env.data.ruleset.markers.is_empty() {
-        warn!("[fetch_port_ruleset({})] incoming port ruleset empty ({})", port, env.data.version);
+        warn!(
+            "[fetch_port_ruleset({})] incoming port ruleset empty ({})",
+            port, env.data.version
+        );
     }
 
     Ok((env.data.ruleset, env.data.version))

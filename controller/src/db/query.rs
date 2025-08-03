@@ -1,9 +1,8 @@
-use std::path::Path;
 use anyhow::{anyhow, Result};
 use rusqlite::{params, Connection};
 use shared::eval_record::EvaluationRecord;
 use shared::sink_model::EcamEvent;
-
+use std::path::Path;
 
 fn open(path: &str) -> Result<Connection> {
     let conn = Connection::open(Path::new(path))?;
@@ -28,7 +27,11 @@ pub fn load_ecam_agg(
     if service_id.is_some() {
         sql.push_str(" AND service_id = ?");
     }
-    sql.push_str(if asc { " ORDER BY ts_ns ASC" } else { " ORDER BY ts_ns DESC" });
+    sql.push_str(if asc {
+        " ORDER BY ts_ns ASC"
+    } else {
+        " ORDER BY ts_ns DESC"
+    });
     sql.push_str(" LIMIT ?");
 
     let mut stmt = conn.prepare(&sql)?;
@@ -85,7 +88,11 @@ pub fn load_records_agg(
     }
 
     // Order & limit
-    sql.push_str(if asc { " ORDER BY timestamp_ns ASC" } else { " ORDER BY timestamp_ns DESC" });
+    sql.push_str(if asc {
+        " ORDER BY timestamp_ns ASC"
+    } else {
+        " ORDER BY timestamp_ns DESC"
+    });
     sql.push_str(" LIMIT ?");
 
     // Bind
@@ -120,4 +127,3 @@ pub fn load_records_agg(
     let next_since = if out.is_empty() { since } else { max_ts + 1 };
     Ok((out, next_since))
 }
-

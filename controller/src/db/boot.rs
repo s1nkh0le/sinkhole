@@ -1,11 +1,13 @@
-use std::collections::HashMap;
-use rusqlite::{Connection, Row};
 use anyhow::Result;
+use rusqlite::{Connection, Row};
+use std::collections::HashMap;
 
 /// Returns:
 /// - ecam_since:  map service_id -> (max ts_ns + 1) or 0 if none.
 /// - logs_since:  map (service_id, port) -> (max timestamp_ns + 1) or 0 if none.
-pub fn read_boot_cursors(path: &str) -> Result<(HashMap<String, i64>, HashMap<(String, u16), i64>)> {
+pub fn read_boot_cursors(
+    path: &str,
+) -> Result<(HashMap<String, i64>, HashMap<(String, u16), i64>)> {
     let conn = Connection::open(path)?;
 
     // ECAM: max per service
@@ -14,7 +16,7 @@ pub fn read_boot_cursors(path: &str) -> Result<(HashMap<String, i64>, HashMap<(S
         let mut stmt = conn.prepare(
             "SELECT service_id, MAX(ts_ns) AS max_ts
              FROM ecam
-             GROUP BY service_id"
+             GROUP BY service_id",
         )?;
         let rows = stmt.query_map([], |row: &Row| {
             let svc: String = row.get(0)?;
@@ -24,7 +26,11 @@ pub fn read_boot_cursors(path: &str) -> Result<(HashMap<String, i64>, HashMap<(S
 
         for r in rows {
             let (svc, max_ts) = r?;
-            let next = if max_ts < 0 { 0 } else { max_ts.saturating_add(1) };
+            let next = if max_ts < 0 {
+                0
+            } else {
+                max_ts.saturating_add(1)
+            };
             ecam_since.insert(svc, next);
         }
     }
@@ -35,7 +41,7 @@ pub fn read_boot_cursors(path: &str) -> Result<(HashMap<String, i64>, HashMap<(S
         let mut stmt = conn.prepare(
             "SELECT service_id, port, MAX(timestamp_ns) AS max_ts
              FROM records
-             GROUP BY service_id, port"
+             GROUP BY service_id, port",
         )?;
         let rows = stmt.query_map([], |row: &Row| {
             let svc: String = row.get(0)?;
@@ -47,7 +53,11 @@ pub fn read_boot_cursors(path: &str) -> Result<(HashMap<String, i64>, HashMap<(S
 
         for r in rows {
             let ((svc, port), max_ts) = r?;
-            let next = if max_ts < 0 { 0 } else { max_ts.saturating_add(1) };
+            let next = if max_ts < 0 {
+                0
+            } else {
+                max_ts.saturating_add(1)
+            };
             logs_since.insert((svc, port), next);
         }
     }

@@ -1,14 +1,14 @@
-use tokio::{net::TcpListener};
-use tracing_subscriber::{fmt, EnvFilter};
 use crate::api::routes;
+use tokio::net::TcpListener;
+use tracing_subscriber::{fmt, EnvFilter};
 
 mod api;
 mod config;
 mod db;
+mod observability;
 mod puller;
 mod state;
 mod sync;
-mod observability;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -28,19 +28,30 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&bind).await?;
     tracing::info!("controller API listening on {bind}");
 
-    let server = axum::serve(listener, app);
+    let db_for_shutdown = db.clone();
+    let shutdown = async move {
+        // SIGTERM on Unix
+        #[cfg(unix)]
+        let term = async {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+            sigterm.recv().await;
+        };
 
-    tokio::select! {
-        res = server => {
-            res?;
+        #[cfg(not(unix))]
+        let term = std::future::pending::<()>();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = term => {},
         }
-        // _ = signal::ctrl_c() => {
-        //     tracing::info!("CTRL-C received – shutting down");
-        // }
-    }
 
-    let _ = db.tx.send(db::Cmd::Shutdown).await;
+        tracing::info!("shutdown signal received, shutting down…");
+        let _ = db_for_shutdown.tx.send(db::Cmd::Shutdown).await;
+    };
 
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await?;
 
     Ok(())
 }

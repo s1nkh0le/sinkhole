@@ -1,7 +1,7 @@
-pub mod query;
-pub mod boot;
 pub mod aggregate;
+pub mod boot;
 pub mod insertion;
+pub mod query;
 
 use anyhow::Result;
 use rusqlite::{params, Connection};
@@ -74,4 +74,3 @@ pub fn init(path: &str) -> Result<DbHandle> {
 
     Ok(DbHandle { tx, path })
 }
-

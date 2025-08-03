@@ -2,7 +2,6 @@ use serde_json::json;
 use shared::rules_model::*;
 use shared::utils::hashes::sha256_hex;
 
-
 pub fn calc_version_config_only_no_ruleset(raw: &PortInfo) -> anyhow::Result<String> {
     let mut name = raw.name.clone();
     let mut hex_color = raw.hex_color.clone();
@@ -26,7 +25,6 @@ pub fn calc_version_config_only_no_ruleset(raw: &PortInfo) -> anyhow::Result<Str
     let s = serde_json::to_string(&canon)?;
     Ok(sha256_hex(s.as_bytes()))
 }
-
 
 pub fn calc_version_raw_ruleset(raw: &RuleSetRaw) -> anyhow::Result<String> {
     let mut markers = raw.markers.clone();

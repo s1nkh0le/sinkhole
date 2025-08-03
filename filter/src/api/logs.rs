@@ -73,7 +73,11 @@ pub async fn get_logs(
     if let Some(ref r) = reason {
         const ALLOWED: &[&str] = &["blacklist", "whitelist_all_miss", "whitelist_any_miss"];
         if !ALLOWED.contains(&r.as_str()) {
-            errs.push(format!("reason must be one of {:?}; got {}", ALLOWED, r.as_str()));
+            errs.push(format!(
+                "reason must be one of {:?}; got {}",
+                ALLOWED,
+                r.as_str()
+            ));
         }
     }
 
@@ -136,7 +140,11 @@ pub async fn get_logs(
                 .map(|ts| ts + 1)
                 .unwrap_or(since);
             {
-                debug!("[GET /ports/{port}/logs, get_logs()]: got {} records: {:?}", records.len(), records);
+                debug!(
+                    "[GET /ports/{port}/logs, get_logs()]: got {} records: {:?}",
+                    records.len(),
+                    records
+                );
 
                 (
                     StatusCode::OK,

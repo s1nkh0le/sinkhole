@@ -25,7 +25,12 @@ pub async fn ensure_ports_loaded(
     http: &Client,
 ) -> Result<()> {
     // fast path: already known
-    if state.read().services.get(svc_id).map_or(true, |svc| !svc.ports.is_empty()) {
+    if state
+        .read()
+        .services
+        .get(svc_id)
+        .map_or(true, |svc| !svc.ports.is_empty())
+    {
         return Ok(());
     }
 
@@ -51,11 +56,12 @@ pub async fn ensure_ports_loaded(
     let mut w = state.write();
     let svc = w.services.get_mut(svc_id).expect("present");
     for row in resp.data {
-        svc.ports.entry(row.public).or_insert_with(|| crate::state::Port::new());
+        svc.ports
+            .entry(row.public)
+            .or_insert_with(|| crate::state::Port::new());
     }
     Ok(())
 }
-
 
 pub fn ensure_service_exists(
     state: &ControllerState,
@@ -77,7 +83,11 @@ pub fn ensure_service_port_exists(
     port: u16,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     let guard = state.read();
-    match guard.services.get(svc_id).and_then(|s: &Service| s.ports.get(&port)) {
+    match guard
+        .services
+        .get(svc_id)
+        .and_then(|s: &Service| s.ports.get(&port))
+    {
         Some(_) => Ok(()),
         None => Err((
             StatusCode::NOT_FOUND,

@@ -2,7 +2,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::config::ServiceCfg;
+use crate::config::{ControllerCfg, ServiceCfg};
 use crate::db::boot::read_boot_cursors;
 use crate::db::DbHandle;
 use shared::rules_model::{PortInfo, RuleSetRaw};
@@ -49,6 +49,7 @@ pub struct Inner {
 
 #[derive(Debug, Clone)]
 pub struct ControllerState {
+    cfg: Arc<ControllerCfg>,
     inner: Arc<RwLock<Inner>>,
 }
 
@@ -72,13 +73,19 @@ impl ControllerState {
                 },
             );
         }
+
         Ok(Self {
+            cfg: Arc::new(cfg.controller),
             inner: Arc::new(RwLock::new(Inner {
                 services,
                 db,
                 boot_logs_since: boot_logs_map,
             })),
         })
+    }
+
+    pub fn cfg(&self) -> Arc<ControllerCfg> {
+        self.cfg.clone()
     }
 
     pub fn db(&self) -> DbHandle {

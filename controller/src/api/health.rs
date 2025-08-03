@@ -1,8 +1,7 @@
+use crate::state::ControllerState;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
-use crate::state::ControllerState;
-
 
 // ──────────────────────────────────────────────────────────────
 // Health & service list

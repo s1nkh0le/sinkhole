@@ -1,17 +1,10 @@
-
-
-
-// ──────────────────────────────────────────────────────────────
-// Aggregated ECAM & Records (controller DB)
-// ──────────────────────────────────────────────────────────────
-
+use crate::db;
+use crate::state::ControllerState;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
-use crate::db;
-use crate::state::ControllerState;
 
 #[derive(Deserialize, Debug)]
 pub struct EcamQuery {
@@ -53,7 +46,7 @@ pub async fn get_ecam(
     let join_res = tokio::task::spawn_blocking(move || {
         db::query::load_ecam_agg(&db.path, svc.as_deref(), since, until, limit, asc)
     })
-        .await;
+    .await;
 
     match join_res {
         Ok(Ok((events, next_since))) => (
@@ -70,4 +63,3 @@ pub async fn get_ecam(
         ),
     }
 }
-

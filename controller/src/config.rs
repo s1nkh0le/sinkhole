@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
+use shared::utils::hashes::sha256_hex;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -16,6 +17,8 @@ pub struct ControllerCfg {
 
     pub sync_interval_secs: u64, // how often we refresh ports/config/ruleset
     pub sync_concurrency: usize, // max in-flight port fetches per service
+
+    pub ctrl_token_hash: Option<String>,
 }
 
 /// One upstream filter "service" the controller talks to.
@@ -56,8 +59,7 @@ pub fn load() -> Result<Config> {
         .parse()
         .with_context(|| format!("invalid CTRL_BIND/CONTROLLER_BIND: '{bind_str}'"))?;
 
-    let db_path = std::env::var("CTRL_DB_PATH")
-        .unwrap_or_else(|_| "ctrl.db".to_string());
+    let db_path = std::env::var("CTRL_DB_PATH").unwrap_or_else(|_| "ctrl.db".to_string());
 
     let pull_secs = std::env::var("CTRL_PULL_INTERVAL_SECS")
         .or_else(|_| std::env::var("PULL_INTERVAL_SECS"))
@@ -77,12 +79,26 @@ pub fn load() -> Result<Config> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(4);
 
+    let ctrl_token_hash = match (
+        std::env::var("CTRL_API_TOKEN_HASH").ok(),
+        std::env::var("CTRL_API_TOKEN").ok(),
+    ) {
+        (Some(h), _) => Some(h),
+        (None, Some(tok)) => Some(sha256_hex(tok.as_bytes())),
+        (None, None) => None,
+    };
+
+    if ctrl_token_hash.is_none() {
+        tracing::warn!("controller auth is DISABLED (no CTRL_API_TOKEN[_HASH] set)");
+    }
+
     let controller = ControllerCfg {
         bind,
         db_path,
         pull_interval,
         sync_interval_secs,
-        sync_concurrency
+        sync_concurrency,
+        ctrl_token_hash,
     };
 
     // ── Services (upstreams) ───────────────────────────────────────────────
@@ -98,7 +114,10 @@ pub fn load() -> Result<Config> {
     let mut seen = HashSet::new();
     for s in &services {
         if s.id.trim().is_empty() {
-            bail!("service id must not be empty (service with base_url={})", s.base_url);
+            bail!(
+                "service id must not be empty (service with base_url={})",
+                s.base_url
+            );
         }
         if !seen.insert(s.id.clone()) {
             bail!("duplicate service id '{}'", s.id);
@@ -115,7 +134,10 @@ pub fn load() -> Result<Config> {
         }
     }
 
-    Ok(Config { controller, services })
+    Ok(Config {
+        controller,
+        services,
+    })
 }
 
 // Scan SERVICE_{N}_* first; if none found, scan legacy FILTER_{N}_* (warn).
@@ -134,16 +156,18 @@ fn scan_indexed_services(prefix: &str) -> Result<Vec<ServiceCfg>> {
     // We implement (A) now; (B) can be added later if needed.
 
     for idx in 0.. {
-        let url_key   = format!("{prefix}_{idx}_URL");
+        let url_key = format!("{prefix}_{idx}_URL");
         let token_key = format!("{prefix}_{idx}_TOKEN");
-        let id_key    = format!("{prefix}_{idx}_ID");
-        let name_key  = format!("{prefix}_{idx}_NAME");
+        let id_key = format!("{prefix}_{idx}_ID");
+        let name_key = format!("{prefix}_{idx}_NAME");
 
         let Some(url_os) = std::env::var_os(&url_key) else {
             // stop at first gap (contiguous block)
             break;
         };
-        let url = url_os.into_string().map_err(|_| anyhow!("invalid UTF-8 in {}", url_key))?;
+        let url = url_os
+            .into_string()
+            .map_err(|_| anyhow!("invalid UTF-8 in {}", url_key))?;
 
         let token = std::env::var(&token_key)
             .with_context(|| format!("missing {token_key} for {prefix}_{idx}"))?;

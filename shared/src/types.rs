@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use strum_macros::Display;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, Display, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, Display, PartialOrd,
+)]
 pub enum Scope {
     #[serde(rename = "meta")]
     Meta,

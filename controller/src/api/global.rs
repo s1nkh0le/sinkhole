@@ -1,3 +1,6 @@
+use crate::db::aggregate::{global_load_ecam, global_load_records_agg};
+use crate::db::query::{load_ecam_agg, load_records_agg};
+use crate::{db::query as dbq, state::ControllerState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -5,15 +8,9 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use tracing::warn;
-use crate::{
-    db::query as dbq,
-    state::ControllerState,
-};
-use shared::eval_record::{EvaluationRecord, DropReason};
+use shared::eval_record::{DropReason, EvaluationRecord};
 use shared::types::Decision;
-use crate::db::aggregate::{global_load_ecam, global_load_records_agg};
-use crate::db::query::{load_ecam_agg, load_records_agg};
+use tracing::warn;
 
 #[derive(Deserialize, Debug)]
 pub struct EcamQuery {
@@ -31,7 +28,7 @@ pub struct RecordsAggQuery {
     pub since: Option<i64>,
     pub until: Option<i64>,
     pub limit: Option<usize>,
-    pub order: Option<String>, // "asc" | "desc"
+    pub order: Option<String>,    // "asc" | "desc"
     pub decision: Option<String>, // "allow" | "drop"
     pub dir: Option<String>,      // "in" | "out"
     pub reason: Option<String>,   // "blacklist" | "whitelist_all_miss" | "whitelist_any_miss"
@@ -70,13 +67,16 @@ pub async fn get_ecam_global(
     let svc_opt = q.service_id.clone();
 
     if svc_opt.is_some() {
-        warn!("[get_ecam_global(), GET /ecam] passed svc={} to global aggregation API", svc_opt.clone().unwrap());
+        warn!(
+            "[get_ecam_global(), GET /ecam] passed svc={} to global aggregation API",
+            svc_opt.clone().unwrap()
+        );
     }
 
     let res = tokio::task::spawn_blocking(move || {
         load_ecam_agg(&db.path, svc_opt.as_deref(), since, until, limit, asc)
     })
-        .await;
+    .await;
 
     match res {
         Ok(Ok((events, next_since))) => (
@@ -102,7 +102,7 @@ pub async fn get_ecam_global(
 fn decision_matches(rec: &EvaluationRecord, want: &str) -> bool {
     match want {
         "allow" => matches!(rec.decision, Decision::Allow),
-        "drop"  => matches!(rec.decision, Decision::Drop),
+        "drop" => matches!(rec.decision, Decision::Drop),
         _ => true,
     }
 }
@@ -110,7 +110,7 @@ fn decision_matches(rec: &EvaluationRecord, want: &str) -> bool {
 /// helper: direction filter
 fn dir_matches(rec: &EvaluationRecord, want: &str) -> bool {
     match want {
-        "in"  => rec.inbound,
+        "in" => rec.inbound,
         "out" => !rec.inbound,
         _ => true,
     }
@@ -119,12 +119,18 @@ fn dir_matches(rec: &EvaluationRecord, want: &str) -> bool {
 /// helper: reason filter (based on drop_reasons)
 fn reason_matches(rec: &EvaluationRecord, want: &str) -> bool {
     match want {
-        "blacklist" =>
-            rec.drop_reasons.iter().any(|r| matches!(r, DropReason::Blacklist { .. })),
-        "whitelist_all_miss" =>
-            rec.drop_reasons.iter().any(|r| matches!(r, DropReason::WhitelistAllMiss { .. })),
-        "whitelist_any_miss" =>
-            rec.drop_reasons.iter().any(|r| matches!(r, DropReason::WhitelistAnyMiss { .. })),
+        "blacklist" => rec
+            .drop_reasons
+            .iter()
+            .any(|r| matches!(r, DropReason::Blacklist { .. })),
+        "whitelist_all_miss" => rec
+            .drop_reasons
+            .iter()
+            .any(|r| matches!(r, DropReason::WhitelistAllMiss { .. })),
+        "whitelist_any_miss" => rec
+            .drop_reasons
+            .iter()
+            .any(|r| matches!(r, DropReason::WhitelistAnyMiss { .. })),
         _ => true,
     }
 }
@@ -161,14 +167,25 @@ pub async fn get_records_global(
     let port_opt = q.port;
 
     if port_opt.is_some() {
-        warn!("[get_records_global(), GET /records] passed port={} to global aggregation API", port_opt.clone().unwrap());
+        warn!(
+            "[get_records_global(), GET /records] passed port={} to global aggregation API",
+            port_opt.clone().unwrap()
+        );
     }
 
     // Load (SQL: service, port, times, order, limit)
     let res = tokio::task::spawn_blocking(move || {
-        load_records_agg(&db.path, svc_opt.as_deref(), port_opt, since, until, limit, asc)
+        load_records_agg(
+            &db.path,
+            svc_opt.as_deref(),
+            port_opt,
+            since,
+            until,
+            limit,
+            asc,
+        )
     })
-        .await;
+    .await;
 
     match res {
         Ok(Ok((mut records, next_since))) => {
