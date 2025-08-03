@@ -95,6 +95,7 @@ pub struct PortInfo {
     pub comment: Option<String>,
     pub hex_color: Option<String>,
     pub enabled_scopes: Vec<Scope>,
+    // TODO we need to add a version for also config, since this is just sha256(matches+filters)
     pub version: String,
 }
 

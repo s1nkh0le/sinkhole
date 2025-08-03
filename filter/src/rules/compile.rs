@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::version::calc_version;
+use super::version::calc_version_raw_ruleset;
 use crate::matcher::Matcher;
 use crate::matcher::always::AlwaysMatcher;
 use crate::matcher::method_regex::MethodRegexMatcher;
@@ -53,7 +53,7 @@ pub struct CompiledRuleSet {
 // Public entry
 // --------------------------------------------------
 pub fn compile_ruleset(raw: &RuleSetRaw) -> Result<CompiledRuleSet> {
-    let version = calc_version(raw)?;
+    let version = calc_version_raw_ruleset(raw)?;
 
     let markers = raw
         .markers

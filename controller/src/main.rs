@@ -7,15 +7,18 @@ mod config;
 mod db;
 mod puller;
 mod state;
+mod sync;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    fmt().with_env_filter(EnvFilter::from_default_env()).init();
+    let log_filter = EnvFilter::new("trace,hyper_util=info,reqwest=info");
+    fmt().with_env_filter(log_filter).init();
 
     let cfg = config::load()?;
     let db = db::init(&cfg.controller.db_path)?;
     let state = state::ControllerState::new(cfg.clone(), db.clone())?;
 
+    sync::spawn_all_state_sync(state.clone(), reqwest::Client::new(), cfg.clone());
     puller::spawn_all_pull_tasks(state.clone(), reqwest::Client::new(), db.clone());
 
     let app = routes::build_router(state.clone());

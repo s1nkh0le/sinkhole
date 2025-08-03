@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::config::ServiceCfg;
-use shared::rules_model::{PortInfo, RuleSetRaw};
+use crate::db::boot::read_boot_cursors;
 use crate::db::DbHandle;
+use shared::rules_model::{PortInfo, RuleSetRaw};
 
 #[derive(Debug)]
 pub struct Port {
@@ -12,6 +13,8 @@ pub struct Port {
     pub info: Option<PortInfo>,
     /// Latest ruleset fetched from filter.
     pub ruleset: Option<RuleSetRaw>,
+    /// Hash of markers+filter
+    pub ruleset_version: Option<String>,
     /// Cursor for logs (next_since from last pull).
     pub next_logs_since: i64,
 }
@@ -21,6 +24,7 @@ impl Port {
         Self {
             info: None,
             ruleset: None,
+            ruleset_version: None,
             next_logs_since: 0,
         }
     }
@@ -39,7 +43,8 @@ pub struct Service {
 #[derive(Debug)]
 pub struct Inner {
     pub services: HashMap<String, Service>,
-    pub db:       DbHandle,
+    pub db: DbHandle,
+    pub boot_logs_since: HashMap<(String, u16), i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,8 +54,13 @@ pub struct ControllerState {
 
 impl ControllerState {
     pub fn new(cfg: crate::config::Config, db: DbHandle) -> anyhow::Result<Self> {
+        // 1) Read boot cursors from DB
+        let (boot_cursor_map, boot_logs_map) = read_boot_cursors(&db.path)?;
+
         let mut services = HashMap::new();
         for svc in cfg.services {
+            let boot_ecam_since = boot_cursor_map.get(&svc.id).copied().unwrap_or(0);
+
             services.insert(
                 svc.id.clone(),
                 Service {
@@ -58,12 +68,16 @@ impl ControllerState {
                     ports: HashMap::new(),
                     last_sync_ns: 0,
                     healthy: false,
-                    next_ecam_since: 0,
+                    next_ecam_since: boot_ecam_since,
                 },
             );
         }
         Ok(Self {
-            inner: Arc::new(RwLock::new(Inner { services, db })),
+            inner: Arc::new(RwLock::new(Inner {
+                services,
+                db,
+                boot_logs_since: boot_logs_map,
+            })),
         })
     }
 

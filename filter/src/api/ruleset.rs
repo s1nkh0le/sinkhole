@@ -20,7 +20,7 @@ use tracing::{error, info};
 pub async fn get_ruleset(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, db)): State<SharedState>,
+    State((cfg, registry, _db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (
@@ -32,11 +32,13 @@ pub async fn get_ruleset(
     match registry.get(&port) {
         Some(pr) => {
             let rs_arc = pr.raw_ruleset.load();
-            let version = rules::calc_version(&rs_arc).unwrap_or_default();
+            let version = rules::calc_version_raw_ruleset(&rs_arc).unwrap_or_default();
 
             (
                 StatusCode::OK,
-                Json(json!({"status":"ok","data":{"version":version,"ruleset": rs_arc.as_ref() }})),
+                Json(
+                    json!({"status":"ok", "data":{"version":version, "ruleset": rs_arc.as_ref() }}),
+                ),
             )
         }
         None => {
@@ -49,7 +51,7 @@ pub async fn get_ruleset(
 
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"status":"error","errors":["unknown port"]})),
+                Json(json!({"status":"error", "errors":["unknown port"]})),
             )
         }
     }
@@ -104,7 +106,7 @@ pub async fn put_ruleset(
     }
 
     // version + compile
-    let version = match rules::calc_version(&body) {
+    let version = match rules::calc_version_raw_ruleset(&body) {
         Ok(v) => v,
         Err(e) => {
             sink_ecam::record(

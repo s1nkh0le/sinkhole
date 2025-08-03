@@ -1,3 +1,6 @@
+use crate::api::api_cached::{get_cached_port_config, get_cached_port_ruleset};
+use crate::api::util::{ensure_ports_loaded, ensure_service_exists, ensure_service_port_exists};
+use crate::{db, state::ControllerState};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -7,26 +10,21 @@ use axum::{
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::log::{error, warn};
 use shared::rules_model::{PortInfo, RuleSetRaw};
-use crate::{
-    db::query,
-    state::{ControllerState, Service},
-};
-use crate::api::util::{ensure_ports_loaded, ensure_service_exists, ensure_service_port_exists};
-
-
 
 
 pub fn build_router(state: ControllerState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/services", get(list_services))
-        .route("/services/:svc/ports", get(list_ports))
-        .route("/services/:svc/ports/:port/info", get(get_port_info))
-        .route("/services/:svc/ports/:port/ruleset", get(get_ruleset).put(put_ruleset))
-        .route("/services/:svc/ecam", get(get_ecam))
-        .route("/services/:svc/ports/:port/logs", get(get_logs))
+        .route("/services/{svc}/ports", get(list_ports))
+        .route("/services/{svc}/ports/{port}/info", get(get_port_info))
+        .route("/services/{svc}/ports/{port}/ruleset", get(get_ruleset).put(put_ruleset))
+        .route("/services/{svc}/ecam", get(get_ecam))
+        .route("/services/{svc}/ports/{port}/logs", get(get_records))
+        .route("/services/{svc}/ports/{port}/config", get(get_port_config).put(put_port_config))
+        .route("/services/{svc}/ports/{port}/config/cached", get(get_cached_port_config))
+        .route("/services/{svc}/ports/{port}/ruleset/cached", get(get_cached_port_ruleset))
         .with_state(state)
 }
 
@@ -54,16 +52,17 @@ pub async fn list_services(State(state): State<ControllerState>) -> Json<serde_j
         .services
         .iter()
         .map(|(id, svc)| {
-            json!({
+            serde_json::json!({
                 "id": id,
                 "url": svc.cfg.base_url,
                 "healthy": svc.healthy,
-                "last_sync_ns": svc.last_sync_ns
+                "last_sync_ns": svc.last_sync_ns,
+                "ports": svc.ports.keys().collect::<Vec<_>>(),
             })
         })
         .collect::<Vec<_>>();
 
-    Json(json!({ "status":"ok", "data": list }))
+    Json(serde_json::json!({ "status":"ok", "data": list }))
 }
 
 
@@ -109,6 +108,99 @@ pub async fn list_ports(
 
     (StatusCode::OK, Json(json!({"status":"ok","data": rows})))
 }
+
+
+
+
+// ──────────────────────────────────────────────────────────────
+// Per-port CONFIG (proxy to filter)
+// ──────────────────────────────────────────────────────────────
+
+/// GET /services/{svc}/ports/{port}/config
+pub async fn get_port_config(
+    Path((svc, port)): Path<(String, u16)>,
+    State(state): State<ControllerState>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let svc_cfg = {
+        let guard = state.read();
+        let c = guard.services.get(&svc).unwrap();
+        c.cfg.clone()
+    };
+
+    if let Err(resp) = ensure_service_exists(&state, &svc) {
+        return resp;
+    }
+
+
+    let url = format!("{}/ports/{}/config", svc_cfg.base_url, port);
+    let client = Client::new();
+    match client
+        .get(&url)
+        .query(&[("token", svc_cfg.token.as_str())])
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let code = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            match resp.json::<serde_json::Value>().await {
+                Ok(body) => (code, Json(body)),
+                Err(e) => (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"status":"error","errors":[format!("invalid filter JSON: {e}")]})),
+                ),
+            }
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"status":"error","errors":[format!("upstream request failed: {e}")]})),
+        ),
+    }
+}
+
+/// PUT /services/{svc}/ports/{port}/config
+pub async fn put_port_config(
+    Path((svc, port)): Path<(String, u16)>,
+    State(state): State<ControllerState>,
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let svc_cfg = {
+        let guard = state.read();
+        let c = guard.services.get(&svc).unwrap();
+        c.cfg.clone()
+    };
+
+    if let Err(resp) = ensure_service_exists(&state, &svc) {
+        return resp;
+    }
+
+
+    let url = format!("{}/ports/{}/config", svc_cfg.base_url, port);
+    let client = reqwest::Client::new();
+    match client
+        .put(&url)
+        .query(&[("token", svc_cfg.token.as_str())])
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let code = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            match resp.json::<serde_json::Value>().await {
+                Ok(body) => (code, Json(body)),
+                Err(e) => (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"status":"error","errors":[format!("invalid filter JSON: {e}")]})),
+                ),
+            }
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"status":"error","errors":[format!("upstream request failed: {e}")]})),
+        ),
+    }
+}
+
+
 
 
 
@@ -279,123 +371,140 @@ pub async fn put_ruleset(
 
 
 
+// ──────────────────────────────────────────────────────────────
+// Aggregated ECAM & Records (controller DB)
+// ──────────────────────────────────────────────────────────────
 
-/// ----------------------------------------------------------------
-///  /services/{svc}/ecam?since=…&limit=…
-/// ----------------------------------------------------------------
 #[derive(Deserialize, Debug)]
 pub struct EcamQuery {
-    #[serde(default)]
+    pub service_id: Option<String>,
     pub since: Option<i64>,
-    #[serde(default)]
+    pub until: Option<i64>,
     pub limit: Option<usize>,
+    pub order: Option<String>, // "asc" | "desc"
 }
 
-
+/// GET /ecam?service_id=&since=&until=&limit=&order=
 pub async fn get_ecam(
-    Path(svc): Path<String>,
     Query(q): Query<EcamQuery>,
     State(state): State<ControllerState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    // defaults
     let since = q.since.unwrap_or(0);
-    let limit = q.limit.unwrap_or(1_000).min(10_000);
+    let until = q.until.unwrap_or(i64::MAX);
+    let limit = q.limit.unwrap_or(1000).min(10_000);
+    let asc = q
+        .order
+        .as_deref()
+        .map(|s| s.eq_ignore_ascii_case("asc"))
+        .unwrap_or(true);
 
+    // optional: validate service exists if provided
+    if let Some(ref svc_id) = q.service_id {
+        if !state.read().services.contains_key(svc_id) {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status":"error","errors":["unknown service_id"]})),
+            );
+        }
+    }
+
+    // query DB (blocking)
     let db = state.db();
-
-    if let Err(resp) = ensure_service_exists(&state, &svc) {
-        return resp;
-    }
-
-    // blocking SQL in spawn_blocking
-    let join_res = tokio::task::spawn_blocking({
-        let db_path = db.path.clone();
-        let svc = svc.clone();
-        move || query::load_ecam(&db_path, &svc, since, limit)
-    })
-    .await;
-
-    match join_res {
-        Ok(Ok((evts, next_since))) => (
-            StatusCode::OK,
-            Json(json!({
-                "status":"ok",
-                "data": evts,
-                "next_since": next_since
-            })),
-        ),
-        Ok(Err(e)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "status":"error", "errors":[e.to_string()] })),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "status":"error", "errors":[e.to_string()] })),
-        ),
-    }
-}
-
-
-
-
-
-
-/// ----------------------------------------------------------------
-///  /services/{svc}/ports/{port}/logs?since=&limit=
-/// ----------------------------------------------------------------
-#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
-pub struct LogsQuery {
-    #[serde(default)]
-    since: Option<i64>,
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-#[derive(Deserialize)]
-struct LogsPath {
-    svc: String, // must match `{svc}` in the route
-    port: u16
-}
-
-pub async fn get_logs(
-    Path((svc, port)): Path<(String, u16)>,
-    Query(q): Query<LogsQuery>,
-    State(state): State<ControllerState>,
-) -> (StatusCode, Json<serde_json::Value>) {
-    let since = q.since.unwrap_or(0);
-    let limit = q.limit.unwrap_or(1000);
-
-    if let Err(resp) = ensure_service_port_exists(&state, &svc, port) {
-        return resp;
-    }
-
-    let db = state.db();
-    let join_res = tokio::task::spawn_blocking({
-        let db_path = db.path.clone();
-        let svc = svc.clone();
-        move || query::load_records(&db_path, &svc, port, since, limit)
+    let svc = q.service_id.clone();
+    let join_res = tokio::task::spawn_blocking(move || {
+        db::query::load_ecam_agg(&db.path, svc.as_deref(), since, until, limit, asc)
     })
         .await;
 
-    let resp: (StatusCode, Json<serde_json::Value>) = match join_res {
-        Ok(Ok((recs, next_since))) => (
+    match join_res {
+        Ok(Ok((events, next_since))) => (
             StatusCode::OK,
-            Json(json!({
-                "status":"ok",
-                "data": {
-                    "records": recs,
-                    "next_since": next_since
-                }
-            })),
+            Json(json!({"status":"ok","data": events, "next_since": next_since})),
         ),
         Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "status":"error", "errors":[e.to_string()] })),
+            Json(json!({"status":"error","errors":[e.to_string()]})),
         ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "status":"error", "errors":[e.to_string()] })),
+            Json(json!({"status":"error","errors":[format!("join error: {e}")]})),
         ),
-    };
+    }
+}
 
-    return resp;
+
+
+
+#[derive(Deserialize, Debug)]
+pub struct RecordsQuery {
+    pub service_id: Option<String>,
+    pub port: Option<u16>,
+    pub since: Option<i64>,
+    pub until: Option<i64>,
+    pub limit: Option<usize>,
+    pub order: Option<String>, // "asc" | "desc"
+    // Future: decision/dir/reason (requires JSON1 or columnization)
+}
+
+/// GET /records?service_id=&port=&since=&until=&limit=&order=
+pub async fn get_records(
+    Query(q): Query<RecordsQuery>,
+    State(state): State<ControllerState>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    // defaults
+    let since = q.since.unwrap_or(0);
+    let until = q.until.unwrap_or(i64::MAX);
+    let limit = q.limit.unwrap_or(1000).min(10_000);
+    let asc = q
+        .order
+        .as_deref()
+        .map(|s| s.eq_ignore_ascii_case("asc"))
+        .unwrap_or(true);
+
+    // validate service if provided
+    if let Some(ref svc_id) = q.service_id {
+        if !state.read().services.contains_key(svc_id) {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status":"error","errors":["unknown service_id"]})),
+            );
+        }
+        // if a port is provided, ensure controller knows it (best-effort)
+        if let Some(p) = q.port {
+            let guard = state.read();
+            if let Some(svc_ref) = guard.services.get(svc_id) {
+                if !svc_ref.ports.contains_key(&p) {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({"status":"error","errors":["unknown port for service"]})),
+                    );
+                }
+            }
+        }
+    }
+
+    // query DB (blocking)
+    let db = state.db();
+    let svc = q.service_id.clone();
+    let port = q.port;
+    let join_res = tokio::task::spawn_blocking(move || {
+        db::query::load_records_agg(&db.path, svc.as_deref(), port, since, until, limit, asc)
+    })
+        .await;
+
+    match join_res {
+        Ok(Ok((records, next_since))) => (
+            StatusCode::OK,
+            Json(json!({"status":"ok","data":{"records": records, "next_since": next_since}})),
+        ),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"status":"error","errors":[e.to_string()]})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"status":"error","errors":[format!("join error: {e}")]})),
+        ),
+    }
 }

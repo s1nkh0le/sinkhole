@@ -13,6 +13,9 @@ pub struct ControllerCfg {
     pub db_path: String,
     /// Background pull interval for logs/ecam.
     pub pull_interval: Duration,
+
+    pub sync_interval_secs: u64, // how often we refresh ports/config/ruleset
+    pub sync_concurrency: usize, // max in-flight port fetches per service
 }
 
 /// One upstream filter "service" the controller talks to.
@@ -48,6 +51,7 @@ pub fn load() -> Result<Config> {
     let bind_str = std::env::var("CTRL_BIND")
         .or_else(|_| std::env::var("CONTROLLER_BIND"))
         .unwrap_or_else(|_| "0.0.0.0:7000".to_string());
+
     let bind: SocketAddr = bind_str
         .parse()
         .with_context(|| format!("invalid CTRL_BIND/CONTROLLER_BIND: '{bind_str}'"))?;
@@ -62,10 +66,23 @@ pub fn load() -> Result<Config> {
         .unwrap_or(2);
     let pull_interval = Duration::from_secs(pull_secs);
 
+    // NEW: env for sync task
+    let sync_interval_secs = std::env::var("SYNC_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(15);
+
+    let sync_concurrency = std::env::var("SYNC_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
+
     let controller = ControllerCfg {
         bind,
         db_path,
         pull_interval,
+        sync_interval_secs,
+        sync_concurrency
     };
 
     // ── Services (upstreams) ───────────────────────────────────────────────

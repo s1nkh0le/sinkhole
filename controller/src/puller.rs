@@ -9,8 +9,9 @@ use crate::{
     state::{ControllerState, Service},
 };
 
-const ECAM_INTERVAL: Duration = Duration::from_secs(2);
-const LOGS_INTERVAL: Duration = Duration::from_secs(2);
+const ECAM_INTERVAL: Duration = Duration::from_secs(5);
+const LOGS_INTERVAL: Duration = Duration::from_secs(5);
+
 
 /// Spawn all background pullers once, at startup.
 pub fn spawn_all_pull_tasks(state: ControllerState, http: Client, db: db::DbHandle) {
@@ -22,6 +23,8 @@ pub fn spawn_all_pull_tasks(state: ControllerState, http: Client, db: db::DbHand
 
 /// One task per service – multiplexes ECAM & logs pulls.
 async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db::DbHandle) {
+    info!("[pull_loop(svc_id={})] starting periodic sync", svc_id);
+
     let mut next_ecam_at = Instant::now();
     let mut next_logs_at = Instant::now();
 
@@ -55,8 +58,11 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
             match fetch_ecam(&http, &base_url, &token, ecam_since).await {
                 Ok((mut events, next_since)) => {
                     if !events.is_empty() {
+                        debug!("[pull_loop(svc_id={}) -> ecam cache update] got {} new ecam entries: {:?}", svc_id, events.len(), events);
                         db::insert_ecam(&db, &svc_id, &events).await;
                         events.clear(); // drop big vec ASAP
+                    } else {
+                        debug!("[pull_loop(svc_id={}) -> ecam cache update] got no new ecam entries since {}", svc_id, ecam_since);
                     }
                     // update cursor
                     state
@@ -78,9 +84,13 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
                 match fetch_logs(&http, &base_url, *port, &token, *since).await {
                     Ok((mut recs, next_since)) => {
                         if !recs.is_empty() {
+                            debug!("[pull_loop(svc_id={}) -> log cache update] got {} new logs: {:?}", svc_id, recs.len(), recs);
                             db::insert_logs(&db, &svc_id, *port, &recs).await;
                             recs.clear();
+                        } else {
+                            debug!("[pull_loop(svc_id={}) -> log cache update] no new logs since {}", svc_id, since);
                         }
+
                         state
                             .write()
                             .services
@@ -105,6 +115,8 @@ async fn fetch_ecam(
     token: &str,
     since: i64,
 ) -> Result<(Vec<EcamEvent>, i64)> {
+    debug!("[fetch_ecam()] pulling from: {base}/ecam?token={}&since={}", token, since.to_string());
+
     let resp: FilterEcamEnvelope = http
         .get(&format!("{base}/ecam"))
         .query(&[("token", token), ("since", &since.to_string())])
@@ -125,6 +137,8 @@ async fn fetch_logs(
     since: i64,
 ) -> Result<(Vec<EvaluationRecord>, i64)> {
     let url = format!("{base}/ports/{port}/logs");
+    debug!("[fetch_logs()] pulling from: {}?token={}&since={}&order=asc", url, token, since.to_string());
+
     let resp: FilterLogsEnvelope = http
         .get(&url)
         .query(&[
@@ -143,6 +157,7 @@ async fn fetch_logs(
 
 // ────────────────────────── minimal response structs ─────────────────────
 use serde::Deserialize;
+use tracing::log::{debug, info};
 use shared::eval_record::EvaluationRecord;
 use shared::sink_model::EcamEvent;
 

@@ -47,7 +47,7 @@ pub async fn get_logs(
 
         return (
             StatusCode::NOT_FOUND,
-            Json(json!({"status":"error","errors":["unknown port"]})),
+            Json(json!({"status":"error", "errors":["unknown port"]})),
         );
     }
 
@@ -57,14 +57,14 @@ pub async fn get_logs(
     let decision = q.decision.as_deref().map(str::to_ascii_lowercase);
     if let Some(ref d) = decision {
         if d != "allow" && d != "drop" {
-            errs.push("decision must be 'allow' or 'drop'".to_string());
+            errs.push(format!("decision must be 'allow' or 'drop', got {}", d));
         }
     }
 
     let dir = q.dir.as_deref().map(str::to_ascii_lowercase);
     if let Some(ref d) = dir {
         if d != "in" && d != "out" {
-            errs.push("dir must be 'in' or 'out'".to_string());
+            errs.push(format!("dir must be 'in' or 'out', got {}", d));
         }
     }
 
@@ -72,7 +72,7 @@ pub async fn get_logs(
     if let Some(ref r) = reason {
         const ALLOWED: &[&str] = &["blacklist", "whitelist_all_miss", "whitelist_any_miss"];
         if !ALLOWED.contains(&r.as_str()) {
-            errs.push(format!("reason must be one of {:?}", ALLOWED));
+            errs.push(format!("reason must be one of {:?}; got {}", ALLOWED, r.as_str()));
         }
     }
 
@@ -81,7 +81,7 @@ pub async fn get_logs(
         "asc" => true,
         "desc" => false,
         _ => {
-            errs.push("order must be 'asc' or 'desc'".to_string());
+            errs.push(format!("order must be 'asc' or 'desc'; got {}", order_raw));
             true
         }
     };

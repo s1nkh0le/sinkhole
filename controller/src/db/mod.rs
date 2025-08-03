@@ -1,4 +1,5 @@
-pub(crate) mod query;
+pub mod query;
+pub mod boot;
 
 use anyhow::Result;
 use rusqlite::{params, Connection};
