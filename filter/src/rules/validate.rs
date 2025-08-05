@@ -1,5 +1,5 @@
-use shared::rules_model::*;
-use shared::types::{RuleDirection, Scope};
+use shared::types::ruleset_types::*;
+use shared::types::base_types::{RuleDirection, Scope};
 use std::collections::HashSet;
 
 // ---------------------------------------------

@@ -1,6 +1,6 @@
 use crate::matcher::{MatchInput, MatchOutputCore, Matcher};
 use regex::Regex;
-use shared::types::MatchStatus;
+use shared::types::base_types::MatchStatus;
 
 pub struct StatusRegexMatcher {
     re: Regex,

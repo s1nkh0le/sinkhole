@@ -5,8 +5,8 @@ pub mod query;
 
 use anyhow::Result;
 use rusqlite::{params, Connection};
-use shared::eval_record::EvaluationRecord;
-use shared::sink_model::EcamEvent;
+use shared::types::record_types::EvaluationRecord;
+use shared::types::ecam_types::EcamEvent;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 

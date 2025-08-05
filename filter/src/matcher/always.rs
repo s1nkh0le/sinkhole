@@ -1,5 +1,5 @@
 use super::{MatchInput, MatchOutputCore, Matcher};
-use shared::types::MatchStatus;
+use shared::types::base_types::MatchStatus;
 
 pub struct AlwaysMatcher {
     value: bool,

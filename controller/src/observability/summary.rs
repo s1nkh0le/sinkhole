@@ -1,7 +1,7 @@
 use crate::state::ControllerState;
 use serde::Serialize;
 use utoipa::ToSchema;
-use shared::rules_model::{PortInfo, RuleSetRaw};
+use shared::types::ruleset_types::{PortInfo, RuleSetRaw};
 
 #[derive(Debug, Serialize)]
 pub struct ControllerSnapshot {

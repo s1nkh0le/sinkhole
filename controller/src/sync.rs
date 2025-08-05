@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use axum::http::StatusCode;
 use reqwest::Client;
 use serde::Deserialize;
-use shared::rules_model::{PortInfo, RuleSetRaw};
+use shared::types::ruleset_types::{PortInfo, RuleSetRaw};
 use std::{collections::HashSet, mem, time::Duration};
 use tokio::{
     sync::Semaphore,

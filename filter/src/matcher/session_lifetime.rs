@@ -1,6 +1,6 @@
 use crate::matcher::types::CmpOp;
 use crate::matcher::{MatchInput, MatchOutputCore, Matcher};
-use shared::types::MatchStatus;
+use shared::types::base_types::MatchStatus;
 use shared::utils::time::{now_ns, ns_to_hms};
 
 pub struct SessionLifetimeMatcher {

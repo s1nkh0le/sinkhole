@@ -10,8 +10,8 @@ use crate::matcher::size::SizeMatcher;
 use crate::matcher::status_regex::StatusRegexMatcher;
 use crate::matcher::types::CmpOp;
 use anyhow::{Result, anyhow, bail};
-use shared::rules_model::{FilterDef, MarkerDef, MatcherDef, RuleSetRaw};
-use shared::types::{Mode, RuleDirection, Scope};
+use shared::types::ruleset_types::{FilterDef, MarkerDef, MatcherDef, RuleSetRaw};
+use shared::types::base_types::{Mode, RuleDirection, Scope};
 
 pub struct CompiledMarker {
     pub id: String,

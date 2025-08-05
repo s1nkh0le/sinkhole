@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::config::{ControllerCfg, ServiceCfg};
 use crate::db::boot::read_boot_cursors;
 use crate::db::DbHandle;
-use shared::rules_model::{PortInfo, RuleSetRaw};
+use shared::types::ruleset_types::{PortInfo, RuleSetRaw};
 
 #[derive(Debug)]
 pub struct Port {

@@ -188,8 +188,8 @@ async fn fetch_logs(
 // ────────────────────────── minimal response structs ─────────────────────
 use crate::db::insertion::{insert_ecam, insert_logs};
 use serde::Deserialize;
-use shared::eval_record::EvaluationRecord;
-use shared::sink_model::EcamEvent;
+use shared::types::record_types::EvaluationRecord;
+use shared::types::ecam_types::EcamEvent;
 use tracing::log::{debug, info};
 
 #[derive(Deserialize)]

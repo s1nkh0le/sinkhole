@@ -1,5 +1,5 @@
 use crate::engine::dispatcher::MessageCtx;
-use shared::types::{MatchStatus, Scope};
+use shared::types::base_types::{MatchStatus, Scope};
 
 pub struct MatchInput<'a> {
     pub scope: Scope,

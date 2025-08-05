@@ -8,13 +8,13 @@ use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use shared::rules_model::PortInfo;
-use shared::types::Scope;
+use shared::types::ruleset_types::PortInfo;
 use shared::utils::time::now_ns;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
 use utoipa::ToSchema;
+use shared::types::base_types::Scope;
 
 #[derive(Deserialize, ToSchema)]
 pub struct ConfigUpdate {

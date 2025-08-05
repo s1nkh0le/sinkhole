@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use tracing::warn;
 use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkData, OkEnvelope, sealed};
-use shared::rules_model::PortInfo;
+use shared::types::ruleset_types::PortInfo;
 use utoipa::{ToSchema, IntoParams};
 
 /// Single Service information

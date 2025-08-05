@@ -1,7 +1,7 @@
-use crate::types::{Mode, RuleDirection, Scope};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
+use crate::types::base_types::{Mode, RuleDirection, Scope};
 
 fn default_enabled() -> bool {
     true

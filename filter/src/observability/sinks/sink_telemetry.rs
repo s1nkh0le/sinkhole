@@ -1,7 +1,7 @@
 use crate::db::actor::{DbCmd, DbHandle};
 use crate::observability::sinks;
 use once_cell::sync::OnceCell;
-use shared::eval_record::EvaluationRecord;
+use shared::types::record_types::EvaluationRecord;
 
 static DB_SINK: OnceCell<DbHandle> = OnceCell::new();
 

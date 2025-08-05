@@ -1,6 +1,6 @@
 use super::{MatchInput, MatchOutputCore, Matcher};
 use crate::matcher::types::CmpOp;
-use shared::types::{MatchStatus, Scope};
+use shared::types::base_types::{MatchStatus, Scope};
 
 pub struct SizeMatcher {
     pub(crate) op: CmpOp,

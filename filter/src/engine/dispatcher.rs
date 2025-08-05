@@ -8,8 +8,8 @@ use crate::{
     rules::compile::{CompiledFilter, CompiledMarker, CompiledRuleSet, MatcherMeta},
 };
 use base64::Engine;
-use shared::eval_record::{DropReason, EvaluationDetail, EvaluationRecord, HttpInfo, MatchOutput};
-use shared::types::{Decision, Direction, MatchStatus, Mode, Scope};
+use shared::types::record_types::{DropReason, EvaluationDetail, EvaluationRecord, HttpInfo, MatchOutput};
+use shared::types::base_types::{Decision, Direction, MatchStatus, Mode, Scope};
 use shared::utils::time::now_ns;
 
 use crate::registry::PortRuntime;

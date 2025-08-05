@@ -1,6 +1,6 @@
 use crate::db::{Cmd, DbHandle};
-use shared::eval_record::EvaluationRecord;
-use shared::sink_model::EcamEvent;
+use shared::types::record_types::EvaluationRecord;
+use shared::types::ecam_types::EcamEvent;
 
 // async helpers used by puller
 pub async fn insert_ecam(db: &DbHandle, svc: &str, v: &[EcamEvent]) {

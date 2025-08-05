@@ -2,7 +2,7 @@ use crate::db::schema::init_schema;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use rusqlite::{Connection, params};
-use shared::eval_record::EvaluationRecord;
+use shared::types::record_types::EvaluationRecord;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info};

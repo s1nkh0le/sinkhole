@@ -63,19 +63,6 @@ use crate::api::api_ruleset::__path_get_ruleset_cached;
         put_validate_ruleset,
         get_ruleset_cached
     ),
-    components(
-        schemas(
-            shared::sink_model::EcamEvent,
-            shared::eval_record::EvaluationRecord,
-        
-        // rule model
-            shared::rules_model::PortInfo,
-            shared::rules_model::RuleSetRaw,
-            shared::rules_model::MatcherDef,
-            shared::rules_model::MarkerDef,
-            shared::rules_model::FilterDef,
-        )
-    ),
     tags(
         (name = "controller", description = "Sinkhole Controller API"),
         (name = "ecam", description = "ECAM events from filter"),

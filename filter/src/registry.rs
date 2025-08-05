@@ -5,8 +5,8 @@ use crate::{
 use anyhow::Result;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use dashmap::DashMap;
-use shared::rules_model::RuleSetRaw;
-use shared::types::Scope;
+use shared::types::ruleset_types::RuleSetRaw;
+use shared::types::base_types::Scope;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 

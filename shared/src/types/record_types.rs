@@ -1,6 +1,6 @@
-use crate::types::{Decision, MatchStatus, Scope};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use crate::types::base_types::{Decision, MatchStatus, Scope};
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct HttpInfo {

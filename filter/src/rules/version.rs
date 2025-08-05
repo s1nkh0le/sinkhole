@@ -1,5 +1,5 @@
 use serde_json::json;
-use shared::rules_model::*;
+use shared::types::ruleset_types::*;
 use shared::utils::hashes::sha256_hex;
 
 pub fn calc_version_config_only_no_ruleset(raw: &PortInfo) -> anyhow::Result<String> {

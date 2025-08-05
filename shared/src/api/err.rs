@@ -1,5 +1,3 @@
-use std::string::ToString;
-// shared/src/api/error_envelope.rs
 use axum::http::StatusCode;
 use axum::Json;
 use axum::response::{IntoResponse, Response};

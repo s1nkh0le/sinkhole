@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use shared::eval_record::EvaluationRecord;
+use shared::types::record_types::EvaluationRecord;
 use utoipa::{IntoParams, ToSchema};
 use shared::api::err::{ErrorEnvelope};
 use shared::api::{clamp_limit, normalize_order, validate_range};

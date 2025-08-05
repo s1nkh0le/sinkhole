@@ -1,6 +1,6 @@
 use crate::registry::PortRuntime;
 use crate::rules::compile::CompiledRuleSet;
-use shared::rules_model::{MatcherDef, RuleSetRaw};
+use shared::types::ruleset_types::{MatcherDef, RuleSetRaw};
 use std::sync::Arc;
 use tracing::debug;
 

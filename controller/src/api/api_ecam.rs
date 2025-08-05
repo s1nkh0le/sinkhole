@@ -8,7 +8,7 @@ use serde_json::Value;
 use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkEnvelope};
 use shared::api::{clamp_limit, normalize_order, validate_range};
-use shared::sink_model::EcamEvent;
+use shared::types::ecam_types::EcamEvent;
 use utoipa::{IntoParams, ToSchema};
 
 /// Successful ECAM reply

@@ -8,12 +8,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::warn;
-use shared::{rules_model::RuleSetRaw, };
-use utoipa::{ToSchema};
+use utoipa::ToSchema;
 use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkEnvelope};
-
-
+use shared::types::ruleset_types::RuleSetRaw;
 
 /// Successful ruleset reply
 #[derive(Serialize, ToSchema)]

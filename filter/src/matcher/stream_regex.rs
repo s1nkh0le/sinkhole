@@ -1,5 +1,5 @@
 use super::{MatchInput, MatchOutputCore, Matcher, regex_core::RegexCore};
-use shared::types::Scope;
+use shared::types::base_types::Scope;
 use std::str;
 
 pub struct StreamRegex {

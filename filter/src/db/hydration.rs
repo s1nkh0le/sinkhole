@@ -1,7 +1,7 @@
 use crate::db::schema::init_schema;
 use crate::rules::RuleSetRaw;
 use rusqlite::{Connection, params};
-use shared::types::Scope;
+use shared::types::base_types::Scope;
 use std::sync::Arc;
 
 pub struct HydratedPortData {

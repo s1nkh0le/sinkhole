@@ -14,9 +14,9 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use bytes::BytesMut;
-use shared::sink_model::NetworkOrigin;
-use shared::sink_model::NetworkOrigin::{ClientToFilter, Filter};
-use shared::types::Decision;
+use shared::types::ecam_types::NetworkOrigin;
+use shared::types::ecam_types::NetworkOrigin::{ClientToFilter, Filter};
+use shared::types::base_types::Decision;
 use shared::utils::time::now_ns;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

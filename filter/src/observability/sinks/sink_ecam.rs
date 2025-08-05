@@ -1,7 +1,7 @@
 use crate::observability::sinks;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-pub(crate) use shared::sink_model::{EcamEvent, Origin, Severity};
+pub(crate) use shared::types::ecam_types::{EcamEvent, Origin, Severity};
 use shared::utils::time::now_ns;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};

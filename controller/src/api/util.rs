@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::state::{ControllerState, Service};
 use reqwest::Client;
 use serde_json::json;
-use shared::rules_model::PortInfo;
+use shared::types::ruleset_types::PortInfo;
 
 #[derive(Deserialize)]
 struct FilterPortsEnvelope {
