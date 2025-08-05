@@ -1,12 +1,13 @@
 use crate::types::{Mode, RuleDirection, Scope};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use utoipa::ToSchema;
 
 fn default_enabled() -> bool {
     true
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
 #[serde(tag = "type")]
 pub enum MatcherDef {
     #[serde(rename = "stream_regex")]
@@ -61,7 +62,7 @@ pub enum MatcherDef {
     Always { value: bool },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
 pub struct MarkerDef {
     pub id: String,
     pub name: Option<String>,
@@ -72,7 +73,7 @@ pub struct MarkerDef {
     pub enabled: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
 pub struct FilterDef {
     pub id: String,
     pub name: Option<String>,
@@ -88,7 +89,7 @@ pub struct FilterDef {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PortInfo {
     pub public: u16,
     pub upstream: u16,
@@ -100,7 +101,7 @@ pub struct PortInfo {
     pub version: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
 pub struct RuleSetRaw {
     pub comment: Option<String>,
     pub markers: Vec<MarkerDef>,

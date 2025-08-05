@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-shared = { path = "../shared" }
+shared = { path = "../shared", features = ["openapi"] }
 tokio = { version = "1.47.1", features = ["full", "macros"] }
 axum = { version = "0.8.4", features = ["json"] }
 serde = { version = "1.0.219", features = ["derive"] }
@@ -17,3 +17,5 @@ rusqlite = { version = "0.37.0", features = ["bundled"] }
 anyhow = "1.0.98"
 url = "2.5.4"
 form_urlencoded = "1.2.1"
+utoipa = { version = "5.4.0", features = ["macros", "axum_extras", "uuid", "chrono"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }

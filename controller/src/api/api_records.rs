@@ -1,79 +1,210 @@
-use crate::db;
+use crate::db::query;
 use crate::state::ControllerState;
-use axum::extract::{Query, State};
+use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use shared::eval_record::EvaluationRecord;
+use utoipa::{IntoParams, ToSchema};
+use shared::api::err::{ErrorEnvelope};
+use shared::api::{clamp_limit, normalize_order, validate_range};
+use shared::api::ok::{ok, OkEnvelope};
 
-#[derive(Deserialize, Debug)]
-pub struct RecordsQuery {
+// Generic api result
+pub type ApiResult = (StatusCode, Json<Value>);
+
+// Ok envelope content
+#[derive(Serialize, ToSchema)]
+pub struct RecordsOkData {
+    pub records: Vec<EvaluationRecord>,
+    pub next_since: i64,
+}
+impl shared::api::ok::sealed::Sealed for RecordsOkData {}
+impl shared::api::ok::OkData for RecordsOkData {}
+
+
+
+
+#[derive(Deserialize, Debug, IntoParams)]
+pub struct RecordsAggQuery {
     pub service_id: Option<String>,
     pub port: Option<u16>,
     pub since: Option<i64>,
     pub until: Option<i64>,
     pub limit: Option<usize>,
-    pub order: Option<String>,
+    pub order: Option<String>, // "asc" | "desc"
 }
 
-/// GET /records?service_id=&port=&since=&until=&limit=&order=
-pub async fn get_records(
-    Query(q): Query<RecordsQuery>,
+
+#[utoipa::path(
+    get,
+    path = "/records",
+    params(RecordsAggQuery),
+    responses(
+        (status = 200, description = "OK", body = OkEnvelope<RecordsOkData>),
+        (status = 400, description = "Invalid query", body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
+        (status = 404, description = "Unknown service/port", body = ErrorEnvelope),
+        (status = 500, description = "Server error", body = ErrorEnvelope),
+    ),
+    tag = "controller"
+)]
+pub async fn get_aggregated_records(
+    OriginalUri(instance): OriginalUri,
+    Query(q): Query<RecordsAggQuery>,
     State(state): State<ControllerState>,
-) -> (StatusCode, Json<serde_json::Value>) {
-    // defaults
+) -> ApiResult {
     let since = q.since.unwrap_or(0);
     let until = q.until.unwrap_or(i64::MAX);
-    let limit = q.limit.unwrap_or(1000).min(10_000);
-    let asc = q
-        .order
-        .as_deref()
-        .map(|s| s.eq_ignore_ascii_case("asc"))
-        .unwrap_or(true);
 
-    // validate service if provided
-    if let Some(ref svc_id) = q.service_id {
-        if !state.read().services.contains_key(svc_id) {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"status":"error","errors":["unknown service_id"]})),
-            );
+    let asc = match normalize_order(q.order.as_deref()) {
+        Ok(v) => v,
+        Err(m) => {
+            return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
         }
-        // if a port is provided, ensure controller knows it (best-effort)
+    };
+
+    let limit = match clamp_limit(q.limit, 10_000) {
+        Ok(v) => v,
+        Err(m) => { return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result() }
+    };
+
+    if let Err(m) = validate_range(since, until) {
+        return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+    }
+
+    if q.port.is_some() && q.service_id.is_none() {
+        return ErrorEnvelope::bad_request("invalid_query", instance.to_string())
+            .with_detail(format!("when `port` is set ({:?}), `service_id` is required (none supplied)", q.port))
+            .into_result();
+    }
+
+    let norm = RecordsNorm {
+        service_id: q.service_id.clone(),
+        port: q.port,
+        since,
+        until,
+        limit,
+        asc,
+    };
+
+    records_core(state, norm, "/records").await
+}
+
+
+
+
+
+#[derive(Deserialize, Debug, IntoParams)]
+pub struct RecordsQueryNoSvcPort {
+    pub since: Option<i64>,
+    pub until: Option<i64>,
+    pub limit: Option<usize>,
+    pub order: Option<String>,
+}
+#[derive(Deserialize, Debug, IntoParams)]
+pub struct ServicePortPath {
+    pub service_id: String,
+    pub port: u16,
+}
+
+#[utoipa::path(
+    get,
+    path = "/services/{service_id}/ports/{port}/records",
+    params(ServicePortPath, RecordsQueryNoSvcPort),
+    responses(
+        (status = 200, description = "OK", body = OkEnvelope<RecordsOkData>),
+        (status = 400, description = "Invalid query", body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
+        (status = 404, description = "Unknown service/port", body = ErrorEnvelope),
+        (status = 500, description = "Server error", body = ErrorEnvelope),
+    ),
+    tag = "controller"
+)]
+pub async fn get_service_port_logs(
+    Path(path): Path<ServicePortPath>,
+    Query(q): Query<RecordsQueryNoSvcPort>,
+    State(state): State<ControllerState>,
+) -> ApiResult {
+    let since = q.since.unwrap_or(0);
+    let until = q.until.unwrap_or(i64::MAX);
+
+    let instance = format!("/services/{}/ports/{}/records", path.service_id, path.port);
+
+    let asc = match normalize_order(q.order.as_deref()) {
+        Ok(v) => v,
+        Err(m) => {
+            return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+        }
+    };
+
+    let limit = match clamp_limit(q.limit, 10_000) {
+        Ok(v) => v,
+        Err(m) => {
+            return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+        }
+    };
+
+    if let Err(m) = validate_range(since, until) {
+        return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+    }
+
+    // Path values prevail
+    let norm = RecordsNorm {
+        service_id: Some(path.service_id),
+        port: Some(path.port),
+        since,
+        until,
+        limit,
+        asc,
+    };
+
+    records_core(state, norm, &instance).await
+}
+
+
+
+
+struct RecordsNorm {
+    service_id: Option<String>,
+    port: Option<u16>,
+    since: i64,
+    until: i64,
+    limit: usize,
+    asc: bool,
+}
+
+async fn records_core(state: ControllerState, q: RecordsNorm, instance: &str) -> ApiResult {
+    // Best-effort existence checks (against controller state snapshot)
+    if let Some(ref sid) = q.service_id {
+        let g = state.read();
+        let svc = match g.services.get(sid) {
+            Some(s) => s,
+            None => {
+                return ErrorEnvelope::not_found("service_not_found", instance).with_detail(format!("service_id={sid} not found")).into_result()
+            }
+        };
+
         if let Some(p) = q.port {
-            let guard = state.read();
-            if let Some(svc_ref) = guard.services.get(svc_id) {
-                if !svc_ref.ports.contains_key(&p) {
-                    return (
-                        StatusCode::NOT_FOUND,
-                        Json(json!({"status":"error","errors":["unknown port for service"]})),
-                    );
-                }
+            if !svc.ports.contains_key(&p) {
+                return ErrorEnvelope::not_found("port_not_found", instance).with_detail(format!("port={p} not found")).into_result()
             }
         }
     }
 
-    // query DB
+    // DB query (spawn_blocking)
     let db = state.db();
     let svc = q.service_id.clone();
     let port = q.port;
     let join_res = tokio::task::spawn_blocking(move || {
-        db::query::load_records_agg(&db.path, svc.as_deref(), port, since, until, limit, asc)
+        query::load_records_agg(&db.path, svc.as_deref(), port, q.since, q.until, q.limit, q.asc)
     })
-    .await;
+        .await;
 
     match join_res {
-        Ok(Ok((records, next_since))) => (
-            StatusCode::OK,
-            Json(json!({"status":"ok","data":{"records": records, "next_since": next_since}})),
-        ),
-        Ok(Err(e)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"status":"error","errors":[format!("join error: {e}")]})),
-        ),
+        Ok(Ok((records, next_since))) => ok(RecordsOkData { records, next_since }),
+        Ok(Err(e)) => ErrorEnvelope::internal("db_query_failure", instance).with_detail(e.to_string()).into_result(),
+        Err(e) => ErrorEnvelope::internal("db_query_failure_join", instance).with_detail(e.to_string()).into_result(),
     }
 }

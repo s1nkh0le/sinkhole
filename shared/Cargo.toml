@@ -10,3 +10,9 @@ strum_macros = "0.27.2"
 sha2 = "0.11.0-rc.0"
 time = { version = "0.3.41", features = ["macros", "formatting"] }
 hex = "0.4.3"
+utoipa = { version = "5.4.0", features = ["macros", "axum_extras", "uuid", "chrono"] }
+axum = { version = "0.8.4", features = ["json"] }
+
+[features]
+default = []
+openapi = []

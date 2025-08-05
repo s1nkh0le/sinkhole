@@ -39,6 +39,11 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
         );
         sync_iter += 1;
 
+
+        if sync_iter == 3 {
+            return
+        }
+
         // ── snapshot immutable service config ───────────────
         let (base_url, token, port_snap, ecam_since) = {
             let guard = state.read();

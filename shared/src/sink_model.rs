@@ -1,21 +1,22 @@
 use serde::{Deserialize, Serialize};
 use strum_macros::Display;
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Display)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Display, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Warn,
     Error,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Display)]
+#[derive(Clone, Debug, Serialize, Deserialize, Display, ToSchema)]
 pub enum NetworkOrigin {
     Filter,
     ClientToFilter(u16),
     ServerToFilter(u16),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Display)]
+#[derive(Debug, Clone, Serialize, Deserialize, Display, ToSchema)]
 pub enum Origin {
     Global,
     Configuration,
@@ -28,7 +29,7 @@ pub enum Origin {
     Security,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EcamEvent {
     pub ts_ns: i64,
     pub severity: Severity,

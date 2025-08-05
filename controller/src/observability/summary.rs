@@ -1,6 +1,6 @@
 use crate::state::ControllerState;
 use serde::Serialize;
-
+use utoipa::ToSchema;
 use shared::rules_model::{PortInfo, RuleSetRaw};
 
 #[derive(Serialize)]
@@ -8,7 +8,7 @@ pub struct ControllerSnapshot {
     pub services: Vec<ServiceSnapshot>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ServiceSnapshot {
     pub id: String,
     pub base_url: String,
@@ -18,7 +18,7 @@ pub struct ServiceSnapshot {
     pub ports: Vec<PortSnapshot>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct PortSnapshot {
     pub port: u16,
     pub next_logs_since: i64,

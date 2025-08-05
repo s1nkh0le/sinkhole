@@ -8,7 +8,7 @@ use crate::config::Config;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use anyhow::{Result, anyhow};
-use sha2::{Digest, Sha256};
+use sha2::{Digest};
 use shared::utils::hashes::sha256_hex;
 use tracing::{error, trace, warn};
 

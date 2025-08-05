@@ -52,6 +52,10 @@ async fn state_sync_loop(
             continue;
         }
 
+        if sync_iter == 3 {
+            return
+        }
+
         // snapshot service creds/URL without holding lock across await
         let (base_url, token) = {
             let g = state.read();

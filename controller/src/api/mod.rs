@@ -1,11 +1,10 @@
 pub mod api_cached;
-mod api_ecam;
 mod api_ports;
 mod api_records;
 mod api_ruleset;
 pub mod api_state;
-pub mod auth;
-mod global;
-mod health;
+pub mod middleware_auth;
+pub mod api_health;
 pub mod routes;
 pub mod util;
+pub mod api_ecam;

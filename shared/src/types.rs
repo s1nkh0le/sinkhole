@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use strum_macros::Display;
+use utoipa::ToSchema;
 
-#[derive(
-    Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, Display, PartialOrd,
-)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, Display, PartialOrd, ToSchema)]
 pub enum Scope {
     #[serde(rename = "meta")]
     Meta,
@@ -23,7 +22,7 @@ pub enum Scope {
     Timing,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Decision {
     Allow,
@@ -39,7 +38,7 @@ impl Decision {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum MatchStatus {
     Satisfied,
@@ -48,7 +47,7 @@ pub enum MatchStatus {
     Error,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Blacklist,
@@ -56,13 +55,13 @@ pub enum Mode {
     WhitelistAny,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 pub enum Direction {
     Inbound,
     Outbound,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleDirection {
     Inbound,

@@ -1,7 +1,8 @@
 use crate::types::{Decision, MatchStatus, Scope};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct HttpInfo {
     pub method: Option<String>,
     pub path: Option<String>,
@@ -12,7 +13,7 @@ pub struct HttpInfo {
     pub truncated: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind")]
 pub enum DropReason {
     #[serde(rename = "blacklist")]
@@ -30,7 +31,7 @@ pub enum DropReason {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct MatchOutput {
     pub scope: Scope,
     pub target: String,
@@ -45,7 +46,7 @@ pub struct MatchOutput {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct EvaluationDetail {
     pub kind: String, // "marker" | "filter"
     pub id: String,
@@ -57,7 +58,7 @@ pub struct EvaluationDetail {
 }
 
 // per‑message
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct StatsSnapshot {
     pub blacklist_hits: u64,
     pub whitelist_all_total: u64,
@@ -66,7 +67,7 @@ pub struct StatsSnapshot {
     pub whitelist_any_hit: u64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct EvaluationRecord {
     pub timestamp_ns: u128,
     pub conn_id: u64,

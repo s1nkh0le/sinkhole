@@ -5,7 +5,7 @@ use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use crate::observability::summary::dump_port_state;
 use crate::rules;
-use crate::rules::CompiledRuleSet;
+use crate::rules::{CompiledRuleSet, calc_version_raw_ruleset};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -32,8 +32,7 @@ pub async fn get_ruleset(
     match registry.get(&port) {
         Some(pr) => {
             let rs_arc = pr.raw_ruleset.load();
-            let version = rules::calc_version_raw_ruleset(&rs_arc).unwrap_or_default();
-
+            let version = calc_version_raw_ruleset(&rs_arc).unwrap_or_default();
             (
                 StatusCode::OK,
                 Json(
@@ -93,7 +92,7 @@ pub async fn put_ruleset(
             Severity::Warn,
             Origin::API,
             format!(
-                "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | ruleset validation failed, error=s{}",
+                "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | ruleset validation failed, errors={}",
                 errs.join(", ")
             ),
             None,
@@ -113,7 +112,7 @@ pub async fn put_ruleset(
                 Severity::Warn,
                 Origin::API,
                 format!(
-                    "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | version calc failed, error={e}"
+                    "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | version calc failed, errors={e}"
                 ),
                 None,
             );
@@ -132,7 +131,7 @@ pub async fn put_ruleset(
                 Severity::Warn,
                 Origin::API,
                 format!(
-                    "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | compilation failed, error={e}"
+                    "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | compilation failed, errors={e}"
                 ),
                 None,
             );
@@ -172,5 +171,123 @@ pub async fn put_ruleset(
     (
         StatusCode::OK,
         Json(json!({"status":"ok","data":{"version":version}})),
+    )
+}
+
+///     API: `PUT /ports/{port}/ruleset/validate`
+///     method: `validate_ruleset`
+pub async fn api_validate_ruleset(
+    Path(port): Path<u16>,
+    Query(params): Query<HashMap<String, String>>,
+    State((cfg, registry, _db)): State<SharedState>,
+    Json(body): Json<rules::RuleSetRaw>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"status":"error","errors":[e.to_string()]})),
+        );
+    }
+
+    // locate port
+    let pr = match registry.get(&port) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status":"error","errors":["unknown port"]})),
+            );
+        }
+    };
+
+    // validate
+    let scopes_guard = pr.enabled_scopes.read().unwrap();
+    let errs = rules::validate::validate_ruleset(&body, &*scopes_guard);
+    drop(scopes_guard);
+
+    if !errs.is_empty() {
+        sink_ecam::record(
+            Severity::Warn,
+            Origin::API,
+            format!(
+                "[PUT /ports/{port}/ruleset/validate, validate_ruleset()]: ruleset validation failed, errors={}",
+                errs.join(", ")
+            ),
+            None,
+        );
+
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "status": "ok",
+                "validated": false,
+                "errors": errs,
+            }))
+        );
+    }
+
+    // version + compile
+    let version = match calc_version_raw_ruleset(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!(
+                    "[PUT /ports/{port}/ruleset/validate, validate_ruleset()]: ruleset validation failed, errors={e}"
+                ),
+                None,
+            );
+
+            return (
+                StatusCode::OK,
+                Json(json!({
+                    "status": "ok",
+                    "validated": false,
+                    "errors": errs,
+                }))
+            );
+        }
+    };
+
+    let compiled: CompiledRuleSet = match rules::compile::compile_ruleset(&body) {
+        Ok(c) => c,
+        Err(e) => {
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!(
+                    "[PUT /ports/{port}/ruleset/validate, validate_ruleset()]: ruleset validation unsuccessful, errors={e}"
+                ),
+                None,
+            );
+
+            return (
+                StatusCode::OK,
+                Json(json!({
+                    "status": "ok",
+                    "validated": false,
+                    "errors": errs,
+                }))
+            );
+        }
+    };
+
+    // Print ruleset log
+    info!(
+        port,
+        version,
+        markers = compiled.markers.len(),
+        filters = compiled.filters.len(),
+        "ruleset validated"
+    );
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "ok",
+            "validated": true,
+            "validated_version": version
+        })),
     )
 }
