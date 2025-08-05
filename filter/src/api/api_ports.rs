@@ -1,10 +1,10 @@
-use crate::api::auth;
+use crate::api::middleware_auth;
 use crate::api::routes::SharedState;
 use crate::db::actor::DbCmd;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -14,8 +14,9 @@ use shared::utils::time::now_ns;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
+use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ConfigUpdate {
     name: Option<String>,
     comment: Option<String>,
@@ -23,19 +24,22 @@ pub struct ConfigUpdate {
     enabled_scopes: Option<Vec<Scope>>,
 }
 
-///     API: `GET /ports`
-///     method: `list_ports`
-pub async fn list_ports(
-    Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, _db)): State<SharedState>,
+#[utoipa::path(
+    get,
+    path = "/ports",
+    params(
+        ("token" = String, description = "Authentication token"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    tag = "filter"
+)]
+pub async fn get_port_list(
+    OriginalUri(_uri): OriginalUri,
+    State((_cfg, registry, _db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        );
-    }
-
     let mut list = Vec::new();
     for entry in registry.iter() {
         let pr = entry.value(); // Arc<PortRuntime>
@@ -66,20 +70,26 @@ pub async fn list_ports(
     (StatusCode::OK, Json(json!({"status":"ok", "data":list})))
 }
 
-///     API: `GET /ports/{port}/config`
-///     method: `get_config`
-pub async fn get_config(
-    Path(port): Path<u16>,
-    Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, _db)): State<SharedState>, // _db unused here
-) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        );
-    }
 
+#[utoipa::path(
+    get,
+    path = "/ports/{port}/config",
+    params(
+        ("token" = String, description = "Authentication token"),
+        ("port" = u16, Path, description = "Public port"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown port"),
+    ),
+    tag = "filter"
+)]
+pub async fn get_config(
+    OriginalUri(uri): OriginalUri,
+    Path(port): Path<u16>,
+    State((_cfg, registry, _db)): State<SharedState>,
+) -> (StatusCode, Json<serde_json::Value>) {
     match registry.get(&port) {
         Some(pr) => {
             let name = pr.name.load().as_deref().map(ToOwned::to_owned);
@@ -110,7 +120,7 @@ pub async fn get_config(
             sink_ecam::record(
                 Severity::Warn,
                 Origin::API,
-                format!("[GET /ports/{port}/config, get_config()]: port not found"),
+                format!("[get_config(), GET {}]: port not found", uri.path()),
                 None,
             );
 
@@ -122,34 +132,34 @@ pub async fn get_config(
     }
 }
 
-///     API: `PUT /ports/{port}/config`
-///     method: `put_config`
+
+
+#[utoipa::path(
+    put,
+    path = "/ports/{port}/config",
+    params(
+        ("token" = String, description = "Authentication token"),
+        ("port" = u16, Path, description = "Public port"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown port"),
+    ),
+    tag = "filter"
+)]
 pub async fn put_config(
+    OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
-    Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, db)): State<SharedState>,
+    State((_cfg, registry, db)): State<SharedState>,
     Json(body): Json<ConfigUpdate>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    // ── auth ────────────────────────────────────────────
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        );
-    }
-
     // ── port lookup ─────────────────────────────────────
     let pr = match registry.get(&port) {
         Some(p) => p,
         None => {
-            sink_ecam::record(
-                Severity::Warn,
-                Origin::API,
-                format!(
-                    "[PUT /ports/{port}/config, put_config()]: rejecting config | port not found"
-                ),
-                None,
-            );
+            sink_ecam::record(Severity::Warn, Origin::API, format!("[put_config(), PUT {}]: rejecting config | port not found", uri.path()), None, );
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({"status":"error","errors":["unknown port"]})),
@@ -173,15 +183,7 @@ pub async fn put_config(
     }
 
     if !errs.is_empty() {
-        sink_ecam::record(
-            Severity::Warn,
-            Origin::API,
-            format!(
-                "[PUT /ports/{port}/config, put_config()]: validation failed: {}",
-                errs.join(", ")
-            ),
-            None,
-        );
+        sink_ecam::record(Severity::Warn, Origin::API, format!("[put_config(), PUT {}]: validation failed: {}", uri.path(), errs.join(", ")), None);
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"status":"error","errors": errs})),
@@ -243,7 +245,7 @@ pub async fn put_config(
         ts_ns: now_ns() as i64,
     });
 
-    info!("[port={port}] configuration updated");
+    info!("[put_config(), PUT {}]: configuration updated", uri.path());
 
     // ── respond with typed snapshot ──────────────────────
     (StatusCode::OK, Json(json!({"status":"ok","data": info})))

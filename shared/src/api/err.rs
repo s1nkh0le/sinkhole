@@ -9,17 +9,37 @@ use serde_json::{json, Value};
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[derive(Serialize, Clone)]
 pub struct ErrorEnvelope {
-    /// Always "error"
+    /// The status string; always "error"
     pub status: &'static str,
-    /// HTTP status code
+
+    /// HTTP status code for the error
     pub code: u16,
+
+    /// A concise, human-readable summary of the error
     pub title: String,
+
+    /// An optional detailed description providing more context.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// An optional machine-readable error identifier.
     pub error: Option<String>,
+
+    /// An optional URI reference
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
+}
+
+impl IntoResponse for ErrorEnvelope {
+    fn into_response(self) -> Response {
+        // Try to map your code into a StatusCode, falling back to 500 if it's invalid
+        let status = StatusCode::from_u16(self.code)
+            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+        // (status, Json(body)) is already IntoResponse for a JSON payload
+        (status, Json(self)).into_response()
+    }
 }
 
 

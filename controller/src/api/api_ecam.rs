@@ -11,6 +11,7 @@ use shared::api::{clamp_limit, normalize_order, validate_range};
 use shared::sink_model::EcamEvent;
 use utoipa::{IntoParams, ToSchema};
 
+/// Successful ECAM reply
 #[derive(Serialize, ToSchema)]
 pub struct EcamOkData {
     pub records: Vec<EcamEvent>,
@@ -32,6 +33,9 @@ pub struct EcamAggQuery {
     get,
     path = "/ecam",
     params(EcamAggQuery),
+    params(
+        ("ctrl_token" = String, description = "Authentication token"),
+    ),
     responses(
         (status = 200, description = "OK", body = OkEnvelope<EcamOkData>),
         (status = 400, description = "Invalid query", body = ErrorEnvelope),
@@ -85,16 +89,12 @@ pub struct EcamQueryNoSvc {
     pub order: Option<String>,
 }
 
-#[derive(Deserialize, Debug, IntoParams)]
-pub struct EcamServicePath {
-    pub service_id: String,
-}
-
 #[utoipa::path(
     get,
     path = "/services/{service_id}/ecam",
     params(EcamServicePath),
     params(
+        ("ctrl_token" = String, description = "Authentication token"),
         ("service_id" = String, Path, description = "Service id")
     ),
     responses(

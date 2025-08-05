@@ -1,4 +1,3 @@
-pub mod api_cached;
 mod api_ports;
 mod api_records;
 mod api_ruleset;

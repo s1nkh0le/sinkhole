@@ -37,7 +37,6 @@ use crate::api::api_ruleset::__path_put_ruleset;
 use crate::api::api_ruleset::__path_put_validate_ruleset;
 use crate::api::api_ruleset::__path_get_ruleset_cached;
 
-
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -68,6 +67,13 @@ use crate::api::api_ruleset::__path_get_ruleset_cached;
         schemas(
             shared::sink_model::EcamEvent,
             shared::eval_record::EvaluationRecord,
+        
+        // rule model
+            shared::rules_model::PortInfo,
+            shared::rules_model::RuleSetRaw,
+            shared::rules_model::MatcherDef,
+            shared::rules_model::MarkerDef,
+            shared::rules_model::FilterDef,
         )
     ),
     tags(
@@ -112,9 +118,11 @@ pub fn build_router(state: ControllerState) -> Router {
             }
         }));
 
+    let openapi = SwaggerUi::new("/docs").url("/openapi.json", ApiDoc::openapi());
+
     Router::new()
         .route("/health", get(get_health))
         .merge(protected)
-        .merge(SwaggerUi::new("/docs").url("/openapi.json", ApiDoc::openapi()))
+        .merge(openapi)
         .with_state(state)
 }

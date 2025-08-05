@@ -1,10 +1,10 @@
-use crate::api::auth;
+use crate::api::middleware_auth;
 use crate::api::routes::SharedState;
 use crate::db;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::json;
@@ -19,30 +19,37 @@ pub struct LogsQuery {
     pub decision: Option<String>, // "allow" | "drop"
     pub dir: Option<String>,      // "in" | "out"
     pub reason: Option<String>,   // "blacklist" | "whitelist_all_miss" | "whitelist_any_miss"
-    pub token: Option<String>,
 }
 
-///     API: `GET /ports/{port}/logs`
-///     method: `get_logs`
-pub async fn get_logs(
+
+#[utoipa::path(
+    get,
+    path = "/ports/{port}/records",
+    params(
+        ("token" = String, description = "Authentication token"),
+        ("port" = u16, Path, description = "Public port"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown port"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "filter"
+)]
+pub async fn get_records(
+    OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
     Query(q): Query<LogsQuery>,
-    State((cfg, registry, db)): State<SharedState>,
+    State((_cfg, registry, db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    // auth
-    if let Err(e) = auth::check_token(q.token.as_deref(), &cfg) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        );
-    }
-
     // ensure port exists
     if registry.get(&port).is_none() {
         sink_ecam::record(
             Severity::Warn,
             Origin::API,
-            format!("[GET /ports/{port}/logs, get_logs()]: port not found"),
+            format!("[get_records(), GET {}]: port not found", uri.path()),
             None,
         );
 
@@ -104,15 +111,7 @@ pub async fn get_logs(
     }
 
     if !errs.is_empty() {
-        sink_ecam::record(
-            Severity::Warn,
-            Origin::API,
-            format!(
-                "[GET /ports/{port}/logs, get_logs()]: errors while preparing query: {}",
-                errs.join(", ")
-            ),
-            None,
-        );
+        sink_ecam::record(Severity::Warn, Origin::API, format!("[get_records(), GET {}]: errors while preparing query: {}", uri.path(), errs.join(", ")), None);
 
         return (
             StatusCode::BAD_REQUEST,
@@ -140,11 +139,7 @@ pub async fn get_logs(
                 .map(|ts| ts + 1)
                 .unwrap_or(since);
             {
-                debug!(
-                    "[GET /ports/{port}/logs, get_logs()]: got {} records: {:?}",
-                    records.len(),
-                    records
-                );
+                debug!("[get_records(), GET {}]: got {} records: {:?}", uri.path(),records.len(),records);
 
                 (
                     StatusCode::OK,
@@ -159,15 +154,7 @@ pub async fn get_logs(
             }
         }
         Err(e) => {
-            sink_ecam::record(
-                Severity::Warn,
-                Origin::API,
-                format!(
-                    "[GET /ports/{port}/logs, get_logs()]: database query failed: error={}",
-                    e
-                ),
-                None,
-            );
+            sink_ecam::record(Severity::Warn, Origin::API, format!("[get_records(), GET {}]: database query failed: error={}", uri.path(), e), None, );
 
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

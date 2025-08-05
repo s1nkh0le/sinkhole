@@ -114,6 +114,7 @@ async fn state_sync_loop(
                             }
                         }
 
+                        // FIXME: if we update only the port config (e.g. name/scopes), we're checking against the ruleset hash, which will be the same. We need to add a global hash.
                         // Decide if we need to refresh ruleset: compare version hint
                         let need_ruleset = match (&p.ruleset_version, &pi.version) {
                             (None, _) => true,

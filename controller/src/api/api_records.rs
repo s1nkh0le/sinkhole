@@ -12,7 +12,7 @@ use shared::api::{clamp_limit, normalize_order, validate_range};
 use shared::api::ok::{ok, OkEnvelope};
 
 
-// Ok envelope content
+/// Successful record listing reply
 #[derive(Serialize, ToSchema)]
 pub struct RecordsOkData {
     pub records: Vec<EvaluationRecord>,
@@ -22,7 +22,7 @@ impl shared::api::ok::sealed::Sealed for RecordsOkData {}
 impl shared::api::ok::OkData for RecordsOkData {}
 
 
-
+/// Query typing for /record query
 #[derive(Deserialize, Debug, IntoParams)]
 pub struct RecordsAggQuery {
     pub service_id: Option<String>,
@@ -38,6 +38,9 @@ pub struct RecordsAggQuery {
     get,
     path = "/records",
     params(RecordsAggQuery),
+    params(
+        ("ctrl_token" = String, description = "Authentication token"),
+    ),
     responses(
         (status = 200, description = "OK", body = OkEnvelope<RecordsOkData>),
         (status = 400, description = "Invalid query", body = ErrorEnvelope),
@@ -92,7 +95,7 @@ pub async fn get_aggregated_records(
 
 
 
-
+/// Query typing for service- and port-specific records
 #[derive(Deserialize, Debug, IntoParams)]
 pub struct RecordsQueryNoSvcPort {
     pub since: Option<i64>,
@@ -100,17 +103,19 @@ pub struct RecordsQueryNoSvcPort {
     pub limit: Option<usize>,
     pub order: Option<String>,
 }
-#[derive(Deserialize, Debug, IntoParams)]
-pub struct ServicePortPath {
-    pub service_id: String,
-    pub port: u16,
-}
+
+// #[derive(Deserialize, Debug, IntoParams)]
+// pub struct ServicePortPath {
+//     pub service_id: String,
+//     pub port: u16,
+// }
 
 #[utoipa::path(
     get,
     path = "/services/{service_id}/ports/{port}/records",
     params(ServicePortPath, RecordsQueryNoSvcPort),
     params(
+        ("ctrl_token" = String, description = "Authentication token"),
         ("service_id" = String, Path, description = "Service id"),
         ("port"       = u16,    Path, description = "Port number")
     ),
@@ -125,7 +130,7 @@ pub struct ServicePortPath {
 )]
 pub async fn get_service_port_records(
     OriginalUri(uri): OriginalUri,
-    Path(path): Path<ServicePortPath>,
+    Path((service_id, port)): Path<(String, u16)>,
     Query(q): Query<RecordsQueryNoSvcPort>,
     State(state): State<ControllerState>,
 ) -> (StatusCode, Json<Value>) {
@@ -152,8 +157,8 @@ pub async fn get_service_port_records(
 
     // Path values prevail
     let norm = RecordsNorm {
-        service_id: Some(path.service_id),
-        port: Some(path.port),
+        service_id: Some(service_id),
+        port: Some(port),
         since,
         until,
         limit,

@@ -67,6 +67,7 @@ pub struct StatsSnapshot {
     pub whitelist_any_hit: u64,
 }
 
+/// Complete record of an evaluation decision for a single message
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct EvaluationRecord {
     pub timestamp_ns: u128,

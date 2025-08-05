@@ -6,25 +6,21 @@ use serde::Deserialize;
 use crate::state::{ControllerState, Service};
 use reqwest::Client;
 use serde_json::json;
+use shared::rules_model::PortInfo;
 
 #[derive(Deserialize)]
 struct FilterPortsEnvelope {
     status: String,
-    data: Vec<FilterPortRow>,
-}
-#[derive(Deserialize)]
-struct FilterPortRow {
-    public: u16,
-    upstream: u16,
+    data: Vec<PortInfo>,
 }
 
 /// If the service has no ports recorded, fetch from filter `/ports` and populate `state`.
-pub async fn ensure_ports_loaded(
+pub async fn get_loaded_port_or_fetch(
     state: &ControllerState,
     svc_id: &str,
     http: &Client,
 ) -> Result<()> {
-    // fast path: already known
+    // fast path: port is already known, return from cache
     if state
         .read()
         .services
@@ -49,7 +45,7 @@ pub async fn ensure_ports_loaded(
         .await?;
 
     if resp.status != "ok" {
-        anyhow::bail!("filter /ports returned non-ok");
+        anyhow::bail!("filter /ports returned non-ok: {}", resp.status);
     }
 
     // Insert any new ports

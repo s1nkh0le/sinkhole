@@ -1,7 +1,7 @@
-use crate::api::auth;
+use crate::api::middleware_auth;
 use crate::api::routes::SharedState;
 use crate::observability::sinks::sink_ecam::{ECAM_SINK, EcamEvent};
-use axum::extract::State;
+use axum::extract::{OriginalUri, State};
 use axum::http::StatusCode;
 use axum::{Json, extract::Query};
 use serde::{Deserialize, Serialize};
@@ -21,19 +21,24 @@ pub struct EcamRequest {
     token: Option<String>,
 }
 
-///     API: `GET /ecam`
-///     method: `get_ecam`
-pub async fn get_ecam(
-    Query(q): Query<EcamRequest>,
-    State((cfg, _registry, _db)): State<SharedState>,
-) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(q.token.as_deref(), &cfg) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        );
-    }
 
+#[utoipa::path(
+    get,
+    path = "/ecam",
+    params(
+        ("token" = String, description = "Authentication token"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 401, description = "Unauthorized"),
+    ),
+    tag = "filter"
+)]
+pub async fn get_ecam(
+    OriginalUri(uri): OriginalUri,
+    Query(q): Query<EcamRequest>,
+    State((_cfg, _registry, _db)): State<SharedState>,
+) -> (StatusCode, Json<serde_json::Value>) {
     // ── params ─────────────────────────────────────────
     let since_ns = q.since.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
 
@@ -44,11 +49,7 @@ pub async fn get_ecam(
     events.sort_by_key(|e| e.ts_ns);
 
     // print
-    debug!(
-        "[GET /ecam, get_ecam()]: got {} ecam events: {:?}",
-        events.clone().len(),
-        events.clone()
-    );
+    debug!("[get_ecam(), GET {}]: got {} ecam events: {:?}", uri.path(), events.clone().len(), events.clone());
 
     // compute next_since = (max + 1)  or stick to caller’s since_ns
     let next_since = events.last().map(|e| e.ts_ns + 1).unwrap_or(since_ns);

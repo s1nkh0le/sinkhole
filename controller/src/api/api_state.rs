@@ -6,21 +6,20 @@ use shared::api::ok::{ok, OkEnvelope};
 use utoipa::ToSchema;
 
 
-
-/// 200-OK `data` payload for ruleset endpoints.
+/// Successful state reply
 #[derive(Serialize, ToSchema)]
-pub struct ServicesOkData {
+pub struct StatusOkData {
     pub services: Vec<ServiceSnapshot>,
 }
-impl shared::api::ok::sealed::Sealed for ServicesOkData {}
-impl shared::api::ok::OkData for ServicesOkData {}
+impl shared::api::ok::sealed::Sealed for StatusOkData {}
+impl shared::api::ok::OkData for StatusOkData {}
 
 
 #[utoipa::path(
     get,
     path = "/state",
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<ServicesOkData>),
+        (status = 200, description = "OK", body = OkEnvelope<StatusOkData>),
         (status = 401, description = "Unauthorized"),
     ),
     tag = "controller"
@@ -31,5 +30,5 @@ pub async fn get_state(
     dump_controller_state(&state);
 
     let snap = build_snapshot(&state);
-    ok(ServicesOkData { services: snap.services })
+    ok(StatusOkData { services: snap.services })
 }

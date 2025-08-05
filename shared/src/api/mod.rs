@@ -7,8 +7,6 @@ pub mod ok;
 pub mod err;
 
 
-type ApiResponse = (StatusCode, Json<Value>);
-
 pub fn normalize_order(order: Option<&str>) -> Result<bool, String> {
     match order.map(|s| s.to_ascii_lowercase()) {
         None => Ok(true),

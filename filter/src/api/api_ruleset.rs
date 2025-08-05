@@ -1,4 +1,4 @@
-use crate::api::auth;
+use crate::api::middleware_auth;
 use crate::api::routes::SharedState;
 use crate::db::actor::DbCmd;
 use crate::observability::sinks::sink_ecam;
@@ -7,7 +7,7 @@ use crate::observability::summary::dump_port_state;
 use crate::rules;
 use crate::rules::{CompiledRuleSet, calc_version_raw_ruleset};
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
 use serde_json::json;
 use shared::utils::time::now_ns;
@@ -15,20 +15,25 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info};
 
-///     API: `GET /ports/{port}/ruleset`
-///     method: `get_ruleset`
+#[utoipa::path(
+    get,
+    path = "/ports/{port}/ruleset",
+    params(
+        ("token" = String, description = "Authentication token"),
+        ("port" = u16, Path, description = "Public port"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown port"),
+    ),
+    tag = "filter"
+)]
 pub async fn get_ruleset(
+    OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
-    Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, _db)): State<SharedState>,
+    State((_cfg, registry, _db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        );
-    }
-
     match registry.get(&port) {
         Some(pr) => {
             let rs_arc = pr.raw_ruleset.load();
@@ -44,7 +49,7 @@ pub async fn get_ruleset(
             sink_ecam::record(
                 Severity::Warn,
                 Origin::API,
-                format!("[GET /ports/{port}/ruleset, get_ruleset()]: port not found"),
+                format!("[get_ruleset(), GET {}]: port not found", uri.path()),
                 None,
             );
 
@@ -56,21 +61,29 @@ pub async fn get_ruleset(
     }
 }
 
-///     API: `PUT /ports/{port}/ruleset`
-///     method: `put_ruleset`
+
+#[utoipa::path(
+    put,
+    path = "/ports/{port}/ruleset",
+    params(
+        ("token" = String, description = "Authentication token"),
+        ("port" = u16, Path, description = "Public port"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown port"),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "filter"
+)]
 pub async fn put_ruleset(
+    OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
-    Query(params): Query<HashMap<String, String>>,
     State((cfg, registry, db)): State<SharedState>,
     Json(body): Json<rules::RuleSetRaw>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        );
-    }
-
     // locate port
     let pr = match registry.get(&port) {
         Some(p) => p,
@@ -92,8 +105,7 @@ pub async fn put_ruleset(
             Severity::Warn,
             Origin::API,
             format!(
-                "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | ruleset validation failed, errors={}",
-                errs.join(", ")
+                "[put_ruleset(), PUT {}]: rejecting rules | ruleset validation failed, errors={}", uri.path(), errs.join(", ")
             ),
             None,
         );
@@ -105,14 +117,14 @@ pub async fn put_ruleset(
     }
 
     // version + compile
-    let version = match rules::calc_version_raw_ruleset(&body) {
+    let version = match calc_version_raw_ruleset(&body) {
         Ok(v) => v,
         Err(e) => {
             sink_ecam::record(
                 Severity::Warn,
                 Origin::API,
                 format!(
-                    "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | version calc failed, errors={e}"
+                    "[put_ruleset(), PUT {}]: rejecting rules | version calc failed, errors={e}", uri.path()
                 ),
                 None,
             );
@@ -131,7 +143,7 @@ pub async fn put_ruleset(
                 Severity::Warn,
                 Origin::API,
                 format!(
-                    "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | compilation failed, errors={e}"
+                    "[put_ruleset(), PUT {}]: rejecting rules | compilation failed, errors={e}", uri.path()
                 ),
                 None,
             );
@@ -158,7 +170,7 @@ pub async fn put_ruleset(
     pr.raw_ruleset.store(Arc::new(body));
     pr.compiled.store(Arc::new(compiled));
 
-    // Log port state
+    // Log new port state
     dump_port_state(&*pr);
 
     let _ = db.tx.try_send(DbCmd::SaveRuleset {
@@ -174,22 +186,28 @@ pub async fn put_ruleset(
     )
 }
 
-///     API: `PUT /ports/{port}/ruleset/validate`
-///     method: `validate_ruleset`
-pub async fn api_validate_ruleset(
+
+
+#[utoipa::path(
+    put,
+    path = "/ports/{port}/ruleset/validate",
+    params(
+        ("token" = String, description = "Authentication token"),
+        ("port" = u16, Path, description = "Public port"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown port"),
+    ),
+    tag = "filter"
+)]
+pub async fn put_ruleset_validate(
+    OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
-    Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, _db)): State<SharedState>,
+    State((_cfg, registry, _db)): State<SharedState>,
     Json(body): Json<rules::RuleSetRaw>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"status":"error","errors":[e.to_string()]})),
-        );
-    }
-
-    // locate port
     let pr = match registry.get(&port) {
         Some(p) => p,
         None => {
@@ -200,7 +218,6 @@ pub async fn api_validate_ruleset(
         }
     };
 
-    // validate
     let scopes_guard = pr.enabled_scopes.read().unwrap();
     let errs = rules::validate::validate_ruleset(&body, &*scopes_guard);
     drop(scopes_guard);
@@ -210,7 +227,7 @@ pub async fn api_validate_ruleset(
             Severity::Warn,
             Origin::API,
             format!(
-                "[PUT /ports/{port}/ruleset/validate, validate_ruleset()]: ruleset validation failed, errors={}",
+                "[validate_ruleset(), PUT {}]: ruleset validation failed, errors={}", uri.path(),
                 errs.join(", ")
             ),
             None,
@@ -234,7 +251,7 @@ pub async fn api_validate_ruleset(
                 Severity::Warn,
                 Origin::API,
                 format!(
-                    "[PUT /ports/{port}/ruleset/validate, validate_ruleset()]: ruleset validation failed, errors={e}"
+                    "[validate_ruleset(), PUT {}]:  ruleset validation failed, errors={e}",  uri.path()
                 ),
                 None,
             );
@@ -257,7 +274,7 @@ pub async fn api_validate_ruleset(
                 Severity::Warn,
                 Origin::API,
                 format!(
-                    "[PUT /ports/{port}/ruleset/validate, validate_ruleset()]: ruleset validation unsuccessful, errors={e}"
+                    "[validate_ruleset(), PUT {}]: ruleset validation unsuccessful, errors={e}", uri.path()
                 ),
                 None,
             );
@@ -273,7 +290,6 @@ pub async fn api_validate_ruleset(
         }
     };
 
-    // Print ruleset log
     info!(
         port,
         version,

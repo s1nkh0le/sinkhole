@@ -15,7 +15,7 @@ use shared::api::ok::{ok, OkEnvelope};
 
 
 
-/// 200-OK `data` payload for ruleset endpoints.
+/// Successful ruleset reply
 #[derive(Serialize, ToSchema)]
 pub struct RulesetOkData {
     pub ruleset: RuleSetRaw,
@@ -41,11 +41,11 @@ struct FilterResponseRulesetData {
 
 
 
-
 #[utoipa::path(
     get,
     path = "/services/{service_id}/ports/{port}/ruleset",
     params(
+        ("ctrl_token" = String, description = "Authentication token"),
         ("service_id" = String, Path, description = "Service identifier"),
         ("port" = u16, Path, description = "Public port"),
     ),
@@ -177,6 +177,7 @@ pub async fn get_ruleset(
     get,
     path = "/services/{service_id}/ports/{port}/ruleset/cached",
     params(
+        ("ctrl_token" = String, description = "Authentication token"),
         ("service_id" = String, Path, description = "Service identifier"),
         ("port" = u16, Path, description = "Public port"),
     ),
@@ -241,12 +242,13 @@ pub async fn get_ruleset_cached(
 
 
 
-
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct RulesetValidationOkData {
     pub validated: bool,
     pub validated_version: Option<String>
 }
+impl shared::api::ok::sealed::Sealed for RulesetValidationOkData {}
+impl shared::api::ok::OkData for RulesetValidationOkData {}
 
 
 
@@ -254,6 +256,7 @@ pub struct RulesetValidationOkData {
     put,
     path = "/services/{service_id}/ports/{port}/ruleset",
     params(
+        ("ctrl_token" = String, description = "Authentication token"),
         ("service_id" = String, Path, description = "Service identifier"),
         ("port" = u16, Path, description = "Public port"),
     ),
@@ -364,14 +367,13 @@ pub async fn put_ruleset(
     // 3. Return exactly what you just cached
     ok(RulesetOkData { ruleset: rs, version })
 }
-impl shared::api::ok::sealed::Sealed for RulesetValidationOkData {}
-impl shared::api::ok::OkData for RulesetValidationOkData {}
 
 
 #[utoipa::path(
     put,
     path = "/services/{service_id}/ports/{port}/ruleset/validate",
     params(
+        ("ctrl_token" = String, description = "Authentication token"),
         ("service_id" = String, Path, description = "Service identifier"),
         ("port" = u16, Path, description = "Public port"),
     ),

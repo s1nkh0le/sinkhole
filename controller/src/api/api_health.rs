@@ -10,7 +10,7 @@ use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkEnvelope};
 use crate::state::ControllerState;
 
-/// 200 OK payload for /health
+/// Successful health reply
 #[derive(Serialize, ToSchema)]
 pub struct HealthOkData {
     /// Indicates the controller process is up.
@@ -39,7 +39,7 @@ pub async fn get_health(
 
 
 
-/// Short summary for each known service.
+/// Single service information
 #[derive(Serialize, ToSchema)]
 pub struct ServiceSummary {
     pub id: String,
@@ -49,6 +49,7 @@ pub struct ServiceSummary {
     pub ports: Vec<u16>,
 }
 
+/// Successful service listing reply
 #[derive(Serialize, ToSchema)]
 pub struct ServicesOkData {
     pub services: Vec<ServiceSummary>,
@@ -59,6 +60,9 @@ impl shared::api::ok::OkData for ServicesOkData {}
 #[utoipa::path(
     get,
     path = "/services",
+    params(
+        ("ctrl_token" = String, description = "Authentication token"),
+    ),
     responses(
         (status = 200, description = "OK", body = OkEnvelope<ServicesOkData>),
         (status = 401, description = "Unauthorized"),
