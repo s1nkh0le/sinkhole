@@ -48,7 +48,7 @@ pub struct RecordsAggQuery {
         (status = 404, description = "Unknown service/port", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "records"]
 )]
 pub async fn get_aggregated_records(
     OriginalUri(uri): OriginalUri,
@@ -126,7 +126,7 @@ pub struct RecordsQueryNoSvcPort {
         (status = 404, description = "Unknown service/port", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "records"]
 )]
 pub async fn get_service_port_records(
     OriginalUri(uri): OriginalUri,

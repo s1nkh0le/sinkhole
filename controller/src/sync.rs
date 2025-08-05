@@ -108,9 +108,9 @@ async fn state_sync_loop(
                         p.info = Some(pi.clone());
 
                         // Initialize per-port log cursor if still unset:
-                        if p.next_logs_since == 0 {
+                        if p.port_cursors.next_logs_since == 0 {
                             if let Some(next) = boot_map.remove(&(svc_id.clone(), pi.public)) {
-                                p.next_logs_since = next;
+                                p.port_cursors.next_logs_since = next;
                             }
                         }
 
@@ -188,8 +188,8 @@ async fn state_sync_loop(
                     let mut w = state.write();
                     if let Some(svc) = w.services.get_mut(&svc_id) {
                         // If you want to remove stale ports, you can do it here by comparing svc.ports.keys() with `discovered`.
-                        svc.healthy = true;
-                        svc.last_sync_ns = now_ns();
+                        svc.metadata.healthy = true;
+                        svc.metadata.last_state_sync_ns = now_ns();
                     }
                 }
             }
@@ -197,8 +197,8 @@ async fn state_sync_loop(
                 tracing::warn!(%svc_id, error=?e, "sync ports discovery failed");
                 let mut w = state.write();
                 if let Some(svc) = w.services.get_mut(&svc_id) {
-                    svc.healthy = false;
-                    svc.last_sync_ns = now_ns();
+                    svc.metadata.healthy = false;
+                    svc.metadata.last_state_sync_ns = now_ns();
                 }
             }
         }

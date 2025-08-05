@@ -4,6 +4,6 @@ mod api_ruleset;
 pub mod api_state;
 pub mod middleware_auth;
 pub mod api_health;
-pub mod routes;
+pub mod routes_controller;
 pub mod util;
 pub mod api_ecam;

@@ -77,7 +77,12 @@ use crate::api::api_ruleset::__path_get_ruleset_cached;
         )
     ),
     tags(
-        (name = "controller", description = "Sinkhole Controller API")
+        (name = "controller", description = "Sinkhole Controller API"),
+        (name = "ecam", description = "ECAM events from filter"),
+        (name = "records", description = "Evaluation records from filter"),
+        (name = "ports", description = "Port management for controller and filters"),
+        (name = "ruleset", description = "Ruleset management for controller and filters"),
+        (name = "unauthenticated", description = "API endpoints exposed to the public withouth requiring a token"),
     )
 )]
 struct ApiDoc;

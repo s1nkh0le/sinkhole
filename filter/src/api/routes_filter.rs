@@ -11,7 +11,7 @@ use axum::{Router, routing::get, middleware};
 use axum::routing::{delete, put};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use crate::api::middleware_auth::require_ctrl_token;
+use crate::api::middleware_auth::require_token;
 
 // global state
 use crate::api::api_health::__path_get_health;
@@ -72,19 +72,6 @@ pub type SharedState = (Config, PortRegistry, DbHandle);
         get_db_stats,
         delete_clear_db,
     ),
-    components(
-        schemas(
-            shared::sink_model::EcamEvent,
-            shared::eval_record::EvaluationRecord,
-
-        // rule model
-            shared::rules_model::PortInfo,
-            shared::rules_model::RuleSetRaw,
-            shared::rules_model::MatcherDef,
-            shared::rules_model::MarkerDef,
-            shared::rules_model::FilterDef,
-        )
-    ),
     tags(
         (name = "filter", description = "Sinkhole Filter API")
     )
@@ -116,7 +103,7 @@ pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) ->
             let g = cfg.clone();
             move |req, next| {
                 let cfg_for_mw = g.clone();
-                async move { require_ctrl_token(cfg_for_mw, req, next).await }
+                async move { require_token(cfg_for_mw, req, next).await }
             }
         }));
 

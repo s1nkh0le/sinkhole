@@ -1,5 +1,5 @@
 use crate::api::middleware_auth;
-use crate::api::routes::SharedState;
+use crate::api::routes_filter::SharedState;
 use crate::db::query::{db_health, db_stats};
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};

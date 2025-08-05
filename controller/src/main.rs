@@ -1,4 +1,4 @@
-use crate::api::routes;
+use crate::api::routes_controller;
 use tokio::net::TcpListener;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     sync::spawn_all_state_sync(state.clone(), reqwest::Client::new(), cfg.clone());
     puller::spawn_all_pull_tasks(state.clone(), reqwest::Client::new(), db.clone());
 
-    let app = routes::build_router(state.clone());
+    let app = routes_controller::build_router(state.clone());
 
     let bind = std::env::var("CONTROLLER_BIND").unwrap_or_else(|_| "0.0.0.0:7000".into());
     let listener = TcpListener::bind(&bind).await?;

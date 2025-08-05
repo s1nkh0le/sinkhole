@@ -3,22 +3,27 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use shared::rules_model::{PortInfo, RuleSetRaw};
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ControllerSnapshot {
     pub services: Vec<ServiceSnapshot>,
 }
 
-#[derive(Serialize, ToSchema)]
+/// Snapshot of a service state
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ServiceSnapshot {
+    /// Unique identifier for the service.
     pub id: String,
+    /// Base URL where the service is reachable (IP address of the hosting machine)
     pub base_url: String,
+    /// Health status of the service
     pub healthy: bool,
+    /// Timestamp (in nanoseconds since UNIX epoch) when the service last synchronized
     pub last_sync_ns: i64,
     pub next_ecam_since: i64,
     pub ports: Vec<PortSnapshot>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PortSnapshot {
     pub port: u16,
     pub next_logs_since: i64,
@@ -36,7 +41,7 @@ pub fn build_snapshot(state: &ControllerState) -> ControllerSnapshot {
         for (pno, p) in svc.ports.iter() {
             ports.push(PortSnapshot {
                 port: *pno,
-                next_logs_since: p.next_logs_since,
+                next_logs_since: p.port_cursors.next_logs_since,
                 info: p.info.clone(),
                 ruleset: p.ruleset.clone(),
             });
@@ -45,9 +50,9 @@ pub fn build_snapshot(state: &ControllerState) -> ControllerSnapshot {
         services.push(ServiceSnapshot {
             id: svc_id.clone(),
             base_url: svc.cfg.base_url.clone(),
-            healthy: svc.healthy,
-            last_sync_ns: svc.last_sync_ns,
-            next_ecam_since: svc.next_ecam_since,
+            healthy: svc.metadata.healthy,
+            last_sync_ns: svc.metadata.last_state_sync_ns,
+            next_ecam_since: svc.service_cursors.next_ecam_since,
             ports,
         });
     }

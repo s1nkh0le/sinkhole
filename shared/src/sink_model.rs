@@ -41,7 +41,7 @@ pub struct EcamEvent {
     pub origin: Origin,
     /// Human-readable message describing what happened
     pub msg: String,
-    /// Structured data providing extra context
+    /// Structured JSON data
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }

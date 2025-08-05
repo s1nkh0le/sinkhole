@@ -20,21 +20,20 @@ impl shared::api::ok::sealed::Sealed for HealthOkData {}
 impl shared::api::ok::OkData for HealthOkData {}
 
 
-
+/// Heartbeat endpoint, returning a rsponse for liveness and general system health information
 #[utoipa::path(
     get,
     path = "/health",
     responses(
         (status = 200, description = "OK", body = OkEnvelope<HealthOkData>)
     ),
-    tag = "controller"
+    tags = ["controller", "unauthenticated"]
 )]
 pub async fn get_health(
     OriginalUri(_uri): OriginalUri,
 ) -> (StatusCode, Json<Value>) {
     ok(HealthOkData { healthy: true })
 }
-
 
 
 
@@ -57,6 +56,10 @@ pub struct ServicesOkData {
 impl shared::api::ok::sealed::Sealed for ServicesOkData {}
 impl shared::api::ok::OkData for ServicesOkData {}
 
+
+
+/// Returns brief summary of the controller's registered services.
+/// This is meant to be a quick and synthethic version of a call to `/state`, which returns more extensive information for both services and ports.
 #[utoipa::path(
     get,
     path = "/services",
@@ -75,14 +78,15 @@ pub async fn get_list_services(
     State(state): State<ControllerState>,
 ) -> (StatusCode, Json<Value>) {
     let guard = state.read();
+    // service summary derived from [Service], stripping
     let services = guard
         .services
         .iter()
         .map(|(id, svc)| ServiceSummary {
             id: id.clone(),
             url: svc.cfg.base_url.clone(),
-            healthy: svc.healthy,
-            last_sync_ns: svc.last_sync_ns,
+            healthy: svc.metadata.healthy,
+            last_sync_ns: svc.metadata.last_state_sync_ns,
             ports: svc.ports.keys().copied().collect(),
         })
         .collect();

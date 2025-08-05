@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
     });
 
     // control API
-    let app = api::routes::build_router(cfg.clone(), registry.clone(), db_handle.clone());
+    let app = api::routes_filter::build_router(cfg.clone(), registry.clone(), db_handle.clone());
     let bind = cfg.ctrl_bind_addr();
     let listener = TcpListener::bind(bind)
         .await

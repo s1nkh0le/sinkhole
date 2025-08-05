@@ -43,7 +43,7 @@ pub struct EcamAggQuery {
         (status = 404, description = "Unknown service_id", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "ecam"]
 )]
 pub async fn get_aggregated_ecam(
     OriginalUri(instance): OriginalUri,
@@ -104,7 +104,7 @@ pub struct EcamQueryNoSvc {
         (status = 404, description = "Unknown service_id", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "ecam"]
 )]
 pub async fn get_service_ecam(
     OriginalUri(instance): OriginalUri,

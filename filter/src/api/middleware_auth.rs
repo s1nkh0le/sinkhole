@@ -12,7 +12,7 @@ const FILTER_TOKEN_FIELD: &'static str = "token";
 
 /// Middleware that enforces `?ctrl_token=...` against the configured hash.
 /// If no hash is configured, it lets the request pass (with a WARN logged at init time).
-pub async fn require_ctrl_token(
+pub async fn require_token(
     cfg: Config,
     req: Request<Body>,
     next: Next,
@@ -29,7 +29,7 @@ pub async fn require_ctrl_token(
     }
     let expected = expected.unwrap();
 
-    // Extract ctrl_token from query string
+    // Extract token from query string
     let token_opt = req.uri().query().and_then(|q| {
         form_urlencoded::parse(q.as_bytes())
             .find(|(k, _)| k == FILTER_TOKEN_FIELD)
@@ -37,10 +37,10 @@ pub async fn require_ctrl_token(
     });
 
     let Some(token) = token_opt else {
-        sink_ecam::record(Severity::Error, Origin::Security, format!("authentication failed: no token provided"), None);
+        sink_ecam::record(Severity::Error, Origin::Security, "authentication failed: no token provided".to_string(), None);
         return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
             .with_title("Authenticaton failure")
-            .with_detail("No `ctrl_token` has been supplied. Request is dropped automatically.")
+            .with_detail("No `token` has been supplied. Request is dropped automatically.")
             .into_response();
     };
 
@@ -49,7 +49,7 @@ pub async fn require_ctrl_token(
         sink_ecam::record(Severity::Error, Origin::Security, format!("authentication failed: bad token '{}'", token), None);
         return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
             .with_title("Authenticaton failure")
-            .with_detail("The supplied `ctrl_token` doesn't match the controller's allowed token. Request is dropped automatically.")
+            .with_detail("The supplied `token` doesn't match the controller's allowed token. Request is dropped automatically.")
             .into_response();
     }
 

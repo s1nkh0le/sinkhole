@@ -55,14 +55,14 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
             let ports: Vec<(u16, i64)> = svc
                 .ports
                 .iter()
-                .map(|(p, port)| (*p, port.next_logs_since))
+                .map(|(p, port)| (*p, port.port_cursors.next_logs_since))
                 .collect();
 
             (
                 svc.cfg.base_url.clone(),
                 svc.cfg.token.clone(),
                 ports,
-                svc.next_ecam_since,
+                svc.service_cursors.next_ecam_since,
             )
         };
 
@@ -82,7 +82,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
                         .write()
                         .services
                         .get_mut(&svc_id)
-                        .map(|svc| svc.next_ecam_since = next_since);
+                        .map(|svc| svc.service_cursors.next_ecam_since = next_since);
                 }
                 Err(e) => {
                     tracing::warn!(%svc_id, error = ?e, "ECAM pull failed");
@@ -117,7 +117,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
                             .services
                             .get_mut(&svc_id)
                             .and_then(|svc| svc.ports.get_mut(port))
-                            .map(|p| p.next_logs_since = next_since);
+                            .map(|p| p.port_cursors.next_logs_since = next_since);
                     }
                     Err(e) => tracing::warn!(%svc_id, %port, error = ?e, "log pull failed"),
                 }
@@ -187,7 +187,6 @@ async fn fetch_logs(
 
 // ────────────────────────── minimal response structs ─────────────────────
 use crate::db::insertion::{insert_ecam, insert_logs};
-use crate::observability::summary::dump_controller_state;
 use serde::Deserialize;
 use shared::eval_record::EvaluationRecord;
 use shared::sink_model::EcamEvent;

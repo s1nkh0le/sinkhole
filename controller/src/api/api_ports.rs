@@ -42,7 +42,7 @@ impl OkData for PortListOkData {}
         (status = 404, description = "Unknown service/port or not cached", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "ports"]
 )]
 pub async fn get_list_ports(
     OriginalUri(uri): OriginalUri,
@@ -78,7 +78,7 @@ pub async fn get_list_ports(
                 port: *p,
                 has_info: port.info.is_some(),
                 has_ruleset: port.ruleset.is_some(),
-                next_logs_since: port.next_logs_since,
+                next_logs_since: port.port_cursors.next_logs_since,
             })
             .collect()
     };
@@ -111,7 +111,7 @@ impl OkData for PortInfoOkData {}
         (status = 502, description = "Upstream filter error", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "ports"]
 )]
 pub async fn get_port_config(
     OriginalUri(uri): OriginalUri,
@@ -236,7 +236,7 @@ pub async fn get_port_config(
         (status = 500, description = "Server error", body = ErrorEnvelope),
         (status = 503, description = "Service Unavailable", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "ports"]
 )]
 pub async fn get_port_config_cached(
     OriginalUri(uri): OriginalUri,
@@ -295,7 +295,7 @@ pub async fn get_port_config_cached(
         (status = 502, description = "Upstream filter error", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "ports"]
 )]
 pub async fn put_port_config(
     OriginalUri(uri): OriginalUri,

@@ -1,4 +1,4 @@
-use crate::api::routes::SharedState;
+use crate::api::routes_filter::SharedState;
 use axum::extract::{OriginalUri, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -48,7 +48,10 @@ pub async fn get_version(
     params(
         ("token" = String, description = "Authentication token"),
     ),
-    responses((status = 418, description = "I'm a teapot")),
+    responses(
+        (status = 401, description = "Unauthorized"),
+        (status = 418, description = "I'm a teapot")
+    ),
     tag = "filter"
 )]
 pub async fn get_teapot(
@@ -59,7 +62,7 @@ pub async fn get_teapot(
         StatusCode::IM_A_TEAPOT,
         Json(json!({
             "status":"error",
-            "message": "Add a tea filter"
+            "message": "Refill tea filters"
         }))
     )
 }

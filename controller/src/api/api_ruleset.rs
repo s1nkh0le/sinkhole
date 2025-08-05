@@ -57,7 +57,7 @@ struct FilterResponseRulesetData {
         (status = 500, description = "Server error", body = ErrorEnvelope),
         (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
     ),
-    tag = "controller"
+    tags = ["controller", "ruleset"]
 )]
 pub async fn get_ruleset(
     OriginalUri(uri): OriginalUri,
@@ -189,7 +189,7 @@ pub async fn get_ruleset(
         (status = 500, description = "Server error", body = ErrorEnvelope),
         (status = 503, description = "Service Unavailable", body = ErrorEnvelope),
     ),
-    tag = "controller"
+    tags = ["controller", "ruleset"]
 )]
 pub async fn get_ruleset_cached(
     OriginalUri(uri): OriginalUri,
@@ -269,7 +269,7 @@ impl shared::api::ok::OkData for RulesetValidationOkData {}
         (status = 500, description = "Server error", body = ErrorEnvelope),
         (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
     ),
-    tag = "controller"
+    tags = ["controller", "ruleset"]
 )]
 pub async fn put_ruleset(
     OriginalUri(uri): OriginalUri,
@@ -386,7 +386,7 @@ pub async fn put_ruleset(
         (status = 500, description = "Server error", body = ErrorEnvelope),
         (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
     ),
-    tag = "controller"
+    tags = ["controller", "ruleset"]
 )]
 pub async fn put_validate_ruleset(
     OriginalUri(uri): OriginalUri,
