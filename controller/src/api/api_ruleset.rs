@@ -54,8 +54,8 @@ struct FilterResponseRulesetData {
         (status = 400, description = "Invalid request", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
-        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
     ),
     tag = "controller"
 )]
@@ -149,7 +149,7 @@ pub async fn get_ruleset(
     //     .and_then(|s| s.ports.get_mut(&port))
     //     .map(|p| p.ruleset = Some(rs.clone()));
     // ok(RulesetOkData { ruleset: rs, version: env.data.version });
-    
+
 
 
     let (rs, version) = (env.data.ruleset.clone(), env.data.version.clone());
@@ -185,8 +185,8 @@ pub async fn get_ruleset(
         (status = 400, description = "Invalid request", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
-        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 503, description = "Service Unavailable", body = ErrorEnvelope),
     ),
     tag = "controller"
 )]
@@ -242,11 +242,14 @@ pub async fn get_ruleset_cached(
 
 
 
-/// PUT /services/{service_id}/ports/{port}/ruleset
-///
-/// On success we normalize the output into our `OkEnvelope<RulesetOkData>`.
-/// If the filter rejects the ruleset (validation/sanitization), we convert its
-/// response into a `400 Bad Request` `ErrorEnvelope`.
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct RulesetValidationOkData {
+    pub validated: bool,
+    pub validated_version: Option<String>
+}
+
+
+
 #[utoipa::path(
     put,
     path = "/services/{service_id}/ports/{port}/ruleset",
@@ -260,8 +263,8 @@ pub async fn get_ruleset_cached(
         (status = 400, description = "Filter rejected ruleset", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
-        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
     ),
     tag = "controller"
 )]
@@ -361,17 +364,6 @@ pub async fn put_ruleset(
     // 3. Return exactly what you just cached
     ok(RulesetOkData { ruleset: rs, version })
 }
-
-
-
-
-
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct RulesetValidationOkData {
-    pub validated: bool,
-    pub validated_version: Option<String>
-}
 impl shared::api::ok::sealed::Sealed for RulesetValidationOkData {}
 impl shared::api::ok::OkData for RulesetValidationOkData {}
 
@@ -385,12 +377,12 @@ impl shared::api::ok::OkData for RulesetValidationOkData {}
     ),
     request_body = RuleSetRaw,
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<RulesetValidationOkData>),
+        (status = 200, description = "OK", body = OkEnvelope<RulesetOkData>),
         (status = 400, description = "Filter rejected ruleset", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
-        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
     ),
     tag = "controller"
 )]

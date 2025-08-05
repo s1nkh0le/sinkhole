@@ -30,18 +30,16 @@ struct PortListOkData {
 impl sealed::Sealed for PortListOkData {}
 impl OkData for PortListOkData {}
 
-//
-// GET /services/{service_id}/ports
-//
 #[utoipa::path(
     get,
     path = "/services/{service_id}/ports",
+    params(
+        ("service_id" = String, Path, description = "Service id")
+    ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<PortListOkData>),
-        (status = 400, description = "Invalid request", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
-        (status = 404, description = "Unknown service", body = ErrorEnvelope),
-        (status = 502, description = "Upstream filter error", body = ErrorEnvelope),
+        (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown service/port or not cached", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
     tag = "controller"
@@ -88,12 +86,6 @@ pub async fn get_list_ports(
     ok(PortListOkData { rows })
 }
 
-//
-// GET /services/{service_id}/ports/{port}/info
-//
-// NOTE: This returns the controller’s cached view when available;
-// otherwise it fetches from the filter, caches, and returns it.
-//
 #[derive(Serialize, ToSchema)]
 struct PortInfoOkData {
     port_info: PortInfo,
@@ -103,7 +95,67 @@ impl OkData for PortInfoOkData {}
 
 #[utoipa::path(
     get,
+    path = "/services/{service_id}/ports/{port}/config/cached",
+    params(
+        ("service_id" = String, Path, description = "Service id"),
+        ("port"       = u16,    Path, description = "Port number")
+    ),
+    responses(
+        (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown service/port or not cached", body = ErrorEnvelope),
+        (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 503, description = "Service Unavailable", body = ErrorEnvelope),
+    ),
+    tag = "controller"
+)]
+pub async fn get_port_config_cached(
+    OriginalUri(uri): OriginalUri,
+    Path((service_id, port)): Path<(String, u16)>,
+    State(state): State<ControllerState>,
+) -> (StatusCode, Json<Value>) {
+    // Validate service exists
+    let guard = state.read();
+    let Some(svc) = guard.services.get(&service_id) else {
+        return ErrorEnvelope::not_found("sanitization", uri.path())
+            .with_title("Unknown service")
+            .with_detail(format!("servi ce_id '{service_id}' is not known"))
+            .into_result();
+    };
+
+    // Validate port exists (best-effort against controller state)
+    let Some(p) = svc.ports.get(&port) else {
+        return ErrorEnvelope::not_found("sanitization", uri.path())
+            .with_title("Unknown port")
+            .with_detail(format!("port '{port}' is not known for service '{service_id}'"))
+            .into_result();
+    };
+
+    // Return cached PortInfo if present
+    if let Some(info) = p.info.clone() {
+        return ok(PortInfoOkData { port_info: info });
+    }
+
+    // Known service+port, but cache miss
+    ErrorEnvelope::service_unavailable("cache_miss", uri.path())
+        .with_title("Port info not cached")
+        .with_detail(format!(
+            "Port info for service_id={service_id} and port={port} is not available in controller cache.\
+             Call /services/{service_id}/ports/{port}/info to fetch manually from the filter, or wait for the sync daemon to pull it from the filter.\
+             If you keep getting this error, the filter's syncer may be inoperative."
+        ))
+        .into_result()
+}
+
+
+
+#[utoipa::path(
+    get,
     path = "/services/{service_id}/ports/{port}/config",
+    params(
+        ("service_id" = String, Path, description = "Service id"),
+        ("port"       = u16,    Path, description = "Port number")
+    ),
     responses(
         (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
         (status = 400, description = "Invalid request", body = ErrorEnvelope),
@@ -221,71 +273,13 @@ pub async fn get_port_config(
 }
 
 
-
 #[utoipa::path(
-    get,
-    path = "/services/{service_id}/ports/{port}/config/cached",
+    put,
+    path = "/services/{service_id}/ports/{port}/config",
     params(
         ("service_id" = String, Path, description = "Service id"),
         ("port"       = u16,    Path, description = "Port number")
     ),
-    responses(
-        (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
-        (status = 404, description = "Unknown service/port or not cached", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
-    ),
-    tag = "controller"
-)]
-pub async fn get_port_config_cached(
-    OriginalUri(uri): OriginalUri,
-    Path((service_id, port)): Path<(String, u16)>,
-    State(state): State<ControllerState>,
-) -> (StatusCode, Json<Value>) {
-    // Validate service exists
-    let guard = state.read();
-    let Some(svc) = guard.services.get(&service_id) else {
-        return ErrorEnvelope::not_found("sanitization", uri.path())
-            .with_title("Unknown service")
-            .with_detail(format!("servi ce_id '{service_id}' is not known"))
-            .into_result();
-    };
-
-    // Validate port exists (best-effort against controller state)
-    let Some(p) = svc.ports.get(&port) else {
-        return ErrorEnvelope::not_found("sanitization", uri.path())
-            .with_title("Unknown port")
-            .with_detail(format!("port '{port}' is not known for service '{service_id}'"))
-            .into_result();
-    };
-
-    // Return cached PortInfo if present
-    if let Some(info) = p.info.clone() {
-        return ok(PortInfoOkData { port_info: info });
-    }
-
-    // Known service+port, but cache miss
-    ErrorEnvelope::not_found("cache_miss", uri.path())
-        .with_title("Port info not cached")
-        .with_detail(format!(
-            "Port info for service_id={service_id} and port={port} is not available in controller cache.\
-             Call /services/{service_id}/ports/{port}/info to fetch manually from the filter, or wait for the sync daemon to pull it from the filter.\
-             If you keep getting this error, the filter's syncer may be inoperative."
-        ))
-        .into_result()
-}
-
-
-
-//
-// PUT /services/{service_id}/ports/{port}/config
-//
-// NOTE: pass-through to filter’s response body for *success*,
-// but use structured ErrorEnvelope for *errors*.
-//
-#[utoipa::path(
-    put,
-    path = "/services/{service_id}/ports/{port}/config",
     responses(
         (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
         (status = 400, description = "Invalid request", body = ErrorEnvelope),

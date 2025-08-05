@@ -25,8 +25,7 @@ impl shared::api::ok::OkData for HealthOkData {}
     get,
     path = "/health",
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<HealthOkData>),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 200, description = "OK", body = OkEnvelope<HealthOkData>)
     ),
     tag = "controller"
 )]
@@ -35,9 +34,6 @@ pub async fn get_health(
 ) -> (StatusCode, Json<Value>) {
     ok(HealthOkData { healthy: true })
 }
-
-
-
 
 
 
@@ -65,7 +61,7 @@ impl shared::api::ok::OkData for ServicesOkData {}
     path = "/services",
     responses(
         (status = 200, description = "OK", body = OkEnvelope<ServicesOkData>),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Server error", body = ErrorEnvelope),
     ),
     tag = "controller"

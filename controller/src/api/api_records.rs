@@ -11,8 +11,6 @@ use shared::api::err::{ErrorEnvelope};
 use shared::api::{clamp_limit, normalize_order, validate_range};
 use shared::api::ok::{ok, OkEnvelope};
 
-// Generic api result
-pub type ApiResult = (StatusCode, Json<Value>);
 
 // Ok envelope content
 #[derive(Serialize, ToSchema)]
@@ -22,7 +20,6 @@ pub struct RecordsOkData {
 }
 impl shared::api::ok::sealed::Sealed for RecordsOkData {}
 impl shared::api::ok::OkData for RecordsOkData {}
-
 
 
 
@@ -51,31 +48,31 @@ pub struct RecordsAggQuery {
     tag = "controller"
 )]
 pub async fn get_aggregated_records(
-    OriginalUri(instance): OriginalUri,
+    OriginalUri(uri): OriginalUri,
     Query(q): Query<RecordsAggQuery>,
     State(state): State<ControllerState>,
-) -> ApiResult {
+) -> (StatusCode, Json<Value>) {
     let since = q.since.unwrap_or(0);
     let until = q.until.unwrap_or(i64::MAX);
 
     let asc = match normalize_order(q.order.as_deref()) {
         Ok(v) => v,
         Err(m) => {
-            return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+            return ErrorEnvelope::bad_request("sanitization", uri.to_string()).with_detail(m).into_result()
         }
     };
 
     let limit = match clamp_limit(q.limit, 10_000) {
         Ok(v) => v,
-        Err(m) => { return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result() }
+        Err(m) => { return ErrorEnvelope::bad_request("sanitization", uri.to_string()).with_detail(m).into_result() }
     };
 
     if let Err(m) = validate_range(since, until) {
-        return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+        return ErrorEnvelope::bad_request("sanitization", uri.to_string()).with_detail(m).into_result()
     }
 
     if q.port.is_some() && q.service_id.is_none() {
-        return ErrorEnvelope::bad_request("invalid_query", instance.to_string())
+        return ErrorEnvelope::bad_request("invalid_query", uri.to_string())
             .with_detail(format!("when `port` is set ({:?}), `service_id` is required (none supplied)", q.port))
             .into_result();
     }
@@ -113,6 +110,10 @@ pub struct ServicePortPath {
     get,
     path = "/services/{service_id}/ports/{port}/records",
     params(ServicePortPath, RecordsQueryNoSvcPort),
+    params(
+        ("service_id" = String, Path, description = "Service id"),
+        ("port"       = u16,    Path, description = "Port number")
+    ),
     responses(
         (status = 200, description = "OK", body = OkEnvelope<RecordsOkData>),
         (status = 400, description = "Invalid query", body = ErrorEnvelope),
@@ -122,32 +123,31 @@ pub struct ServicePortPath {
     ),
     tag = "controller"
 )]
-pub async fn get_service_port_logs(
+pub async fn get_service_port_records(
+    OriginalUri(uri): OriginalUri,
     Path(path): Path<ServicePortPath>,
     Query(q): Query<RecordsQueryNoSvcPort>,
     State(state): State<ControllerState>,
-) -> ApiResult {
+) -> (StatusCode, Json<Value>) {
     let since = q.since.unwrap_or(0);
     let until = q.until.unwrap_or(i64::MAX);
-
-    let instance = format!("/services/{}/ports/{}/records", path.service_id, path.port);
 
     let asc = match normalize_order(q.order.as_deref()) {
         Ok(v) => v,
         Err(m) => {
-            return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+            return ErrorEnvelope::bad_request("sanitization", uri.path()).with_detail(m).into_result()
         }
     };
 
     let limit = match clamp_limit(q.limit, 10_000) {
         Ok(v) => v,
         Err(m) => {
-            return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+            return ErrorEnvelope::bad_request("sanitization", uri.path()).with_detail(m).into_result()
         }
     };
 
     if let Err(m) = validate_range(since, until) {
-        return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
+        return ErrorEnvelope::bad_request("sanitization", uri.path()).with_detail(m).into_result()
     }
 
     // Path values prevail
@@ -160,7 +160,7 @@ pub async fn get_service_port_logs(
         asc,
     };
 
-    records_core(state, norm, &instance).await
+    records_core(state, norm, uri.path()).await
 }
 
 
@@ -175,7 +175,7 @@ struct RecordsNorm {
     asc: bool,
 }
 
-async fn records_core(state: ControllerState, q: RecordsNorm, instance: &str) -> ApiResult {
+async fn records_core(state: ControllerState, q: RecordsNorm, instance: &str) -> (StatusCode, Json<Value>) {
     // Best-effort existence checks (against controller state snapshot)
     if let Some(ref sid) = q.service_id {
         let g = state.read();

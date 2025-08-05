@@ -94,6 +94,9 @@ pub struct EcamServicePath {
     get,
     path = "/services/{service_id}/ecam",
     params(EcamServicePath),
+    params(
+        ("service_id" = String, Path, description = "Service id")
+    ),
     responses(
         (status = 200, description = "OK", body = OkEnvelope<EcamOkData>),
         (status = 400, description = "Invalid query", body = ErrorEnvelope),
@@ -132,7 +135,7 @@ pub async fn get_service_ecam(
         limit,
         asc,
     };
-    
+
     ecam_core(state, norm, &instance.path()).await
 }
 
