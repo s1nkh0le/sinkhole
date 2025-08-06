@@ -26,7 +26,7 @@ pub struct ServiceSnapshot {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PortSnapshot {
     pub port: u16,
-    pub next_logs_since: i64,
+    pub next_records_since: i64,
     pub info: Option<PortInfo>,
     pub ruleset: Option<RuleSetRaw>,
 }
@@ -41,7 +41,7 @@ pub fn build_snapshot(state: &ControllerState) -> ControllerSnapshot {
         for (pno, p) in svc.ports.iter() {
             ports.push(PortSnapshot {
                 port: *pno,
-                next_logs_since: p.port_cursors.next_logs_since,
+                next_records_since: p.port_cursors.next_records_since,
                 info: p.info.clone(),
                 ruleset: p.ruleset.clone(),
             });

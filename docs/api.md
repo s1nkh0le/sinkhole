@@ -177,7 +177,7 @@ Notes:
 
 # 6. Log retrieval
 
-### 6.1 `GET /ports/{port}/logs`
+### 6.1 `GET /ports/{port}/records`
 
 Query stored `EvaluationRecord`s.
 

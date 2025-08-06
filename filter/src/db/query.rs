@@ -1,6 +1,7 @@
 use rusqlite::{Connection, params};
 use serde_json::json;
 use std::sync::Arc;
+use serde::Serialize;
 use tracing::log::trace;
 
 pub async fn fetch_records_since(
@@ -121,7 +122,7 @@ pub async fn fetch_records_filtered(
             target: "db.logs",
             sql = %sql,
             params = ?dbg_params,
-            "executing /logs query"
+            "executing /records query"
         );
 
         // Execute --------------------------------------------------------
@@ -205,4 +206,83 @@ pub async fn clear_db(path: Arc<String>) -> anyhow::Result<()> {
         Ok::<_, anyhow::Error>(())
     })
     .await?
+}
+
+
+
+
+#[derive(Debug, Serialize)]
+pub struct PruneResult {
+    /// Number of rows deleted in total
+    pub deleted_rows: i64,
+    /// Remaining rows in `records` after pruning
+    pub remaining_rows: i64,
+    /// Earliest and latest timestamps now present (None if table empty)
+    pub first_ts: Option<i64>,
+    pub last_ts: Option<i64>,
+    /// Current on-disk size (bytes) after checkpoint
+    pub file_bytes: i64,
+}
+
+/// Delete records strictly older than `before_ts_ns` in batches.
+/// Uses a rowid-IN subselect so we can LIMIT deletes (since sqlite doesn't support DELETE ... LIMIT directly).
+pub async fn prune_records_before(
+    path: Arc<String>,
+    before_ts_ns: i64,
+    // Reasonable default: big enough to be efficient, small enough to keep lock times short.
+    batch_size: usize,
+) -> anyhow::Result<PruneResult> {
+    tokio::task::spawn_blocking(move || {
+        let mut conn = Connection::open(&*path)?;
+
+        // Keep track of how many rows we removed
+        let mut total_deleted: i64 = 0;
+
+        // Batched delete loop
+        loop {
+            // Delete up to `batch_size` rows in this iteration.
+            // Using rowid ensures we hit the table's primary storage directly.
+            let deleted = conn.execute(
+                "DELETE FROM records
+                 WHERE rowid IN (
+                   SELECT rowid FROM records
+                   WHERE timestamp_ns < ?
+                   ORDER BY timestamp_ns ASC
+                   LIMIT ?
+                 )",
+                params![before_ts_ns, batch_size as i64],
+            )?;
+
+            total_deleted += deleted as i64;
+
+            if deleted == 0 {
+                break;
+            }
+        }
+
+        // Reclaim WAL space (works under journal_mode=WAL)
+        // No-op if not in WAL mode.
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+
+        // Gather some post-prune stats
+        let remaining_rows: i64 = conn.query_row("SELECT COUNT(*) FROM records", [], |r| r.get(0))?;
+        let first_ts: Option<i64> =
+            conn.query_row("SELECT MIN(timestamp_ns) FROM records", [], |r| r.get(0)).ok();
+        let last_ts: Option<i64> =
+            conn.query_row("SELECT MAX(timestamp_ns) FROM records", [], |r| r.get(0)).ok();
+
+        // File size info (approx.)
+        let page_count: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+        let page_size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+        let file_bytes = page_count * page_size;
+
+        Ok::<_, anyhow::Error>(PruneResult {
+            deleted_rows: total_deleted,
+            remaining_rows,
+            first_ts,
+            last_ts,
+            file_bytes,
+        })
+    })
+        .await?
 }

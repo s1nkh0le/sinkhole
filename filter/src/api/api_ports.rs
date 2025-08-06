@@ -1,4 +1,3 @@
-use crate::api::middleware_auth;
 use crate::api::routes_filter::SharedState;
 use crate::db::actor::DbCmd;
 use crate::observability::sinks::sink_ecam;
@@ -42,7 +41,7 @@ pub async fn get_port_list(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let mut list = Vec::new();
     for entry in registry.iter() {
-        let pr = entry.value(); // Arc<PortRuntime>
+        let pr = entry.value();
         let name_opt = pr.name.load().as_deref().map(ToOwned::to_owned);
         let comment_opt = pr.comment.load().as_deref().map(ToOwned::to_owned);
         let hex_color = pr.hex_color.load().as_deref().map(ToOwned::to_owned);

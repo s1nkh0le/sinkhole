@@ -11,7 +11,7 @@ use serde_json::json;
 use tracing::log::debug;
 
 #[derive(Deserialize, Debug)]
-pub struct LogsQuery {
+pub struct RecordsQuery {
     pub since: Option<i64>,
     pub until: Option<i64>,
     pub limit: Option<usize>,
@@ -41,7 +41,7 @@ pub struct LogsQuery {
 pub async fn get_records(
     OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
-    Query(q): Query<LogsQuery>,
+    Query(q): Query<RecordsQuery>,
     State((_cfg, registry, db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     // ensure port exists

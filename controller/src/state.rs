@@ -22,7 +22,7 @@ pub struct Port {
 #[derive(Debug)]
 pub struct PortCursors {
     /// Cursor for logs (next_since from last pull).
-    pub next_logs_since: i64,
+    pub next_records_since: i64,
 }
 
 impl Port {
@@ -32,7 +32,7 @@ impl Port {
             ruleset: None,
             ruleset_version: None,
             port_cursors: PortCursors {
-                next_logs_since: 0,
+                next_records_since: 0,
             }
         }
     }
@@ -63,7 +63,7 @@ pub struct ServiceMetadata {
 pub struct Inner {
     pub services: HashMap<String, Service>,
     pub db: DbHandle,
-    pub boot_logs_since: HashMap<(String, u16), i64>,
+    pub boot_records_since: HashMap<(String, u16), i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +102,7 @@ impl ControllerState {
             inner: Arc::new(RwLock::new(Inner {
                 services,
                 db,
-                boot_logs_since: boot_logs_map,
+                boot_records_since: boot_logs_map,
             })),
         })
     }

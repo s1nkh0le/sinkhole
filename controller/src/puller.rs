@@ -55,7 +55,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
             let ports: Vec<(u16, i64)> = svc
                 .ports
                 .iter()
-                .map(|(p, port)| (*p, port.port_cursors.next_logs_since))
+                .map(|(p, port)| (*p, port.port_cursors.next_records_since))
                 .collect();
 
             (
@@ -94,7 +94,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
         // ── Logs per port -----------------------------------------------
         if now >= next_logs_at {
             for (port, since) in port_snap.iter() {
-                match fetch_logs(&http, &base_url, *port, &token, *since).await {
+                match fetch_records(&http, &base_url, *port, &token, *since).await {
                     Ok((mut recs, next_since)) => {
                         if !recs.is_empty() {
                             debug!(
@@ -103,7 +103,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
                                 recs.len(),
                                 recs
                             );
-                            insert_logs(&db, &svc_id, *port, &recs).await;
+                            insert_records(&db, &svc_id, *port, &recs).await;
                             recs.clear();
                         } else {
                             debug!(
@@ -117,7 +117,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
                             .services
                             .get_mut(&svc_id)
                             .and_then(|svc| svc.ports.get_mut(port))
-                            .map(|p| p.port_cursors.next_logs_since = next_since);
+                            .map(|p| p.port_cursors.next_records_since = next_since);
                     }
                     Err(e) => tracing::warn!(%svc_id, %port, error = ?e, "log pull failed"),
                 }
@@ -154,14 +154,14 @@ async fn fetch_ecam(
     Ok((resp.data, resp.next_since))
 }
 
-async fn fetch_logs(
+async fn fetch_records(
     http: &Client,
     base: &str,
     port: u16,
     token: &str,
     since: i64,
 ) -> Result<(Vec<EvaluationRecord>, i64)> {
-    let url = format!("{base}/ports/{port}/logs");
+    let url = format!("{base}/ports/{port}/records");
     debug!(
         "[fetch_logs()] pulling from: {}?token={}&since={}&order=asc",
         url,
@@ -169,7 +169,7 @@ async fn fetch_logs(
         since.to_string()
     );
 
-    let resp: FilterLogsEnvelope = http
+    let resp: FilterRecordsEnvelope = http
         .get(&url)
         .query(&[
             ("token", token),
@@ -180,13 +180,13 @@ async fn fetch_logs(
         .await?
         .json()
         .await
-        .context("invalid /logs JSON")?;
+        .context("invalid /records JSON")?;
 
     Ok((resp.data.records, resp.data.next_since))
 }
 
 // ────────────────────────── minimal response structs ─────────────────────
-use crate::db::insertion::{insert_ecam, insert_logs};
+use crate::db::insertion::{insert_ecam, insert_records};
 use serde::Deserialize;
 use shared::types::record_types::EvaluationRecord;
 use shared::types::ecam_types::EcamEvent;
@@ -200,12 +200,12 @@ struct FilterEcamEnvelope {
 }
 
 #[derive(Deserialize)]
-struct FilterLogsEnvelope {
+struct FilterRecordsEnvelope {
     status: String,
-    data: LogsData,
+    data: RecordsData,
 }
 #[derive(Deserialize)]
-struct LogsData {
+struct RecordsData {
     records: Vec<EvaluationRecord>,
     next_since: i64,
 }

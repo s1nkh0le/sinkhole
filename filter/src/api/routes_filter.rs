@@ -1,5 +1,5 @@
 use crate::api::api_ports::{get_config, get_port_list, put_config};
-use crate::api::api_db::{delete_clear_db, get_db_health, get_db_stats};
+use crate::api::api_db::{delete_clear_db, delete_prune_db_records, get_db_health, get_db_stats};
 use crate::api::api_ecam::get_ecam;
 use crate::api::api_health::{get_health, get_version, get_teapot};
 use crate::api::api_records::get_records;
@@ -40,6 +40,7 @@ use crate::api::api_records::__path_get_records;
 use crate::api::api_db::__path_delete_clear_db;
 use crate::api::api_db::__path_get_db_health;
 use crate::api::api_db::__path_get_db_stats;
+use crate::api::api_db::__path_delete_prune_db_records;
 
 
 pub type SharedState = (Config, PortRegistry, DbHandle);
@@ -71,6 +72,7 @@ pub type SharedState = (Config, PortRegistry, DbHandle);
         get_db_health,
         get_db_stats,
         delete_clear_db,
+        delete_prune_db_records,
     ),
     tags(
         (name = "filter", description = "Sinkhole Filter API")
@@ -98,6 +100,7 @@ pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) ->
         .route("/db/health", get(get_db_health))
         .route("/db/stats", get(get_db_stats))
         .route("/db/clear", delete(delete_clear_db))
+        .route("/db/prune/records", delete(delete_prune_db_records))
 
         .layer(middleware::from_fn({
             let g = cfg.clone();

@@ -90,7 +90,7 @@ async fn state_sync_loop(
                 let to_refresh: Vec<(u16, String)> = {
                     let mut w = state.write();
 
-                    let mut boot_map = mem::take(&mut w.boot_logs_since);
+                    let mut boot_map = mem::take(&mut w.boot_records_since);
 
                     let svc = match w.services.get_mut(&svc_id) {
                         Some(s) => s,
@@ -108,9 +108,9 @@ async fn state_sync_loop(
                         p.info = Some(pi.clone());
 
                         // Initialize per-port log cursor if still unset:
-                        if p.port_cursors.next_logs_since == 0 {
+                        if p.port_cursors.next_records_since == 0 {
                             if let Some(next) = boot_map.remove(&(svc_id.clone(), pi.public)) {
-                                p.port_cursors.next_logs_since = next;
+                                p.port_cursors.next_records_since = next;
                             }
                         }
 
@@ -127,7 +127,7 @@ async fn state_sync_loop(
                         }
                     }
 
-                    w.boot_logs_since = boot_map;
+                    w.boot_records_since = boot_map;
                     to_refresh
                 };
 

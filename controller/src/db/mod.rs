@@ -1,4 +1,3 @@
-pub mod aggregate;
 pub mod boot;
 pub mod insertion;
 pub mod query;
@@ -18,7 +17,7 @@ pub struct DbHandle {
 
 pub enum Cmd {
     InsertEcam(Vec<EcamEvent>, String /* svc */),
-    InsertLogs(
+    InsertRecords(
         Vec<EvaluationRecord>,
         String, /* svc */
         u16,    /* port */
@@ -51,7 +50,7 @@ pub fn init(path: &str) -> Result<DbHandle> {
                     }
                     tx.commit().ok();
                 }
-                Cmd::InsertLogs(recs, svc, port) => {
+                Cmd::InsertRecords(recs, svc, port) => {
                     let tx = conn.transaction().unwrap();
                     for r in recs {
                         let _ = tx.execute(

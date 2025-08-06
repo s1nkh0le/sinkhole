@@ -6,9 +6,9 @@ use shared::types::ecam_types::EcamEvent;
 pub async fn insert_ecam(db: &DbHandle, svc: &str, v: &[EcamEvent]) {
     let _ = db.tx.send(Cmd::InsertEcam(v.to_vec(), svc.into())).await;
 }
-pub async fn insert_logs(db: &DbHandle, svc: &str, port: u16, v: &[EvaluationRecord]) {
+pub async fn insert_records(db: &DbHandle, svc: &str, port: u16, v: &[EvaluationRecord]) {
     let _ = db
         .tx
-        .send(Cmd::InsertLogs(v.to_vec(), svc.into(), port))
+        .send(Cmd::InsertRecords(v.to_vec(), svc.into(), port))
         .await;
 }

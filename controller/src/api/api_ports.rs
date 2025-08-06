@@ -18,7 +18,7 @@ struct PortRow {
     port: u16,
     has_info: bool,
     has_ruleset: bool,
-    next_logs_since: i64,
+    next_records_since: i64,
 }
 
 /// Successful port listing data
@@ -78,7 +78,7 @@ pub async fn get_list_ports(
                 port: *p,
                 has_info: port.info.is_some(),
                 has_ruleset: port.ruleset.is_some(),
-                next_logs_since: port.port_cursors.next_logs_since,
+                next_records_since: port.port_cursors.next_records_since,
             })
             .collect()
     };
