@@ -9,6 +9,7 @@ use crate::{
     state::{ControllerState, Service},
 };
 
+/*
 const ECAM_INTERVAL: Duration = Duration::from_secs(5);
 const LOGS_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -52,7 +53,7 @@ async fn pull_loop(svc_id: String, state: ControllerState, http: Client, db: db:
                 None => return, // service removed → terminate
             };
 
-            let ports: Vec<(u16, i64)> = svc
+            let ports: Vec<(u16, u64)> = svc
                 .ports
                 .iter()
                 .map(|(p, port)| (*p, port.port_cursors.next_records_since))
@@ -134,8 +135,8 @@ async fn fetch_ecam(
     http: &Client,
     base: &str,
     token: &str,
-    since: i64,
-) -> Result<(Vec<EcamEvent>, i64)> {
+    since: u64,
+) -> Result<(Vec<EcamEvent>, u64)> {
     debug!(
         "[fetch_ecam()] pulling from: {base}/ecam?token={}&since={}",
         token,
@@ -159,8 +160,8 @@ async fn fetch_records(
     base: &str,
     port: u16,
     token: &str,
-    since: i64,
-) -> Result<(Vec<EvaluationRecord>, i64)> {
+    since: u64,
+) -> Result<(Vec<EvaluationRecord>, u64)> {
     let url = format!("{base}/ports/{port}/records");
     debug!(
         "[fetch_logs()] pulling from: {}?token={}&since={}&order=asc",
@@ -196,7 +197,7 @@ use tracing::log::{debug, info};
 struct FilterEcamEnvelope {
     status: String,
     data: Vec<EcamEvent>,
-    next_since: i64,
+    next_since: u64,
 }
 
 #[derive(Deserialize)]
@@ -207,5 +208,6 @@ struct FilterRecordsEnvelope {
 #[derive(Deserialize)]
 struct RecordsData {
     records: Vec<EvaluationRecord>,
-    next_since: i64,
+    next_since: u64,
 }
+ */

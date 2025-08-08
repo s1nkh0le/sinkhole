@@ -1,39 +1,8 @@
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, params, ToSql};
 use serde_json::json;
 use std::sync::Arc;
 use serde::Serialize;
-use tracing::log::trace;
 
-pub async fn fetch_records_since(
-    path: Arc<String>,
-    port: u16,
-    since_ns: i64,
-    limit: usize,
-) -> anyhow::Result<(Vec<serde_json::Value>, i64)> {
-    tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&*path)?;
-        let mut stmt = conn.prepare(
-            "SELECT timestamp_ns, json
-             FROM records
-             WHERE port = ? AND timestamp_ns > ?
-             ORDER BY timestamp_ns
-             LIMIT ?",
-        )?;
-        let mut rows = stmt.query(params![port as i64, since_ns, limit as i64])?;
-
-        let mut out = Vec::with_capacity(limit);
-        let mut last_ts = since_ns;
-        while let Some(row) = rows.next()? {
-            let ts: i64 = row.get(0)?;
-            let js: String = row.get(1)?;
-            let v: serde_json::Value = serde_json::from_str(&js)?;
-            out.push(v);
-            last_ts = ts;
-        }
-        Ok::<_, anyhow::Error>((out, last_ts))
-    })
-    .await?
-}
 
 pub async fn fetch_records_filtered(
     path: Arc<String>,
@@ -45,15 +14,12 @@ pub async fn fetch_records_filtered(
     decision: Option<&str>,
     dir: Option<&str>,
     reason: Option<&str>,
-) -> anyhow::Result<(Vec<serde_json::Value>, i64)> {
-    // Own the strings for 'static closure
+) -> anyhow::Result<(Vec<serde_json::Value>, u64)> {
     let decision = decision.map(ToOwned::to_owned);
     let dir = dir.map(ToOwned::to_owned);
     let reason = reason.map(ToOwned::to_owned);
 
     tokio::task::spawn_blocking(move || {
-        use rusqlite::ToSql;
-
         let conn = Connection::open(&*path)?;
 
         // Build SQL ------------------------------------------------------
@@ -122,17 +88,23 @@ pub async fn fetch_records_filtered(
             target: "db.logs",
             sql = %sql,
             params = ?dbg_params,
-            "executing /records query"
+            "executing record query"
         );
 
         // Execute --------------------------------------------------------
         let mut stmt = conn.prepare(&sql)?;
-        let mut rows = stmt.query(rusqlite::params_from_iter(params.iter().map(|b| &**b)))?;
+        
+        let map = params.iter().map(|b| &**b);
+        let param = rusqlite::params_from_iter(map);
+        let mut rows = stmt.query(param)?;
 
+        
+        
         let mut out = Vec::with_capacity(limit);
-        let mut last_ts = since;
+        
+        let mut last_ts: u64 = u64::try_from(since).unwrap();
         while let Some(row) = rows.next()? {
-            let ts: i64 = row.get(0)?;
+            let ts: u64 = row.get(0)?;
             let js: String = row.get(1)?;
             out.push(serde_json::from_str(&js)?);
             last_ts = ts;
@@ -172,16 +144,17 @@ pub async fn db_stats(path: Arc<String>) -> anyhow::Result<serde_json::Value> {
     tokio::task::spawn_blocking(move || {
         let conn = Connection::open(&*path)?;
 
-        let row_count: i64 = conn.query_row("SELECT COUNT(*) FROM records", [], |r| r.get(0))?;
-        let first_ts: Option<i64> = conn
+        let row_count: u64 = conn.query_row("SELECT COUNT(*) FROM records", [], |r| r.get(0))?;
+        
+        let first_ts: Option<u64> = conn
             .query_row("SELECT MIN(timestamp_ns) FROM records", [], |r| r.get(0))
             .ok();
-        let last_ts: Option<i64> = conn
+        let last_ts: Option<u64> = conn
             .query_row("SELECT MAX(timestamp_ns) FROM records", [], |r| r.get(0))
             .ok();
 
-        let page_count: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
-        let page_size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+        let page_count: u64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+        let page_size: u64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
         let file_bytes = page_count * page_size;
 
         Ok(json!({
@@ -210,18 +183,17 @@ pub async fn clear_db(path: Arc<String>) -> anyhow::Result<()> {
 
 
 
-
 #[derive(Debug, Serialize)]
 pub struct PruneResult {
     /// Number of rows deleted in total
-    pub deleted_rows: i64,
+    pub deleted_rows: u64,
     /// Remaining rows in `records` after pruning
-    pub remaining_rows: i64,
+    pub remaining_rows: u64,
     /// Earliest and latest timestamps now present (None if table empty)
-    pub first_ts: Option<i64>,
-    pub last_ts: Option<i64>,
+    pub first_ts: Option<u64>,
+    pub last_ts: Option<u64>,
     /// Current on-disk size (bytes) after checkpoint
-    pub file_bytes: i64,
+    pub file_bytes: u64,
 }
 
 /// Delete records strictly older than `before_ts_ns` in batches.
@@ -236,7 +208,7 @@ pub async fn prune_records_before(
         let mut conn = Connection::open(&*path)?;
 
         // Keep track of how many rows we removed
-        let mut total_deleted: i64 = 0;
+        let mut total_deleted: u64 = 0;
 
         // Batched delete loop
         loop {
@@ -253,7 +225,7 @@ pub async fn prune_records_before(
                 params![before_ts_ns, batch_size as i64],
             )?;
 
-            total_deleted += deleted as i64;
+            total_deleted += deleted as u64;
 
             if deleted == 0 {
                 break;
@@ -265,15 +237,13 @@ pub async fn prune_records_before(
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
 
         // Gather some post-prune stats
-        let remaining_rows: i64 = conn.query_row("SELECT COUNT(*) FROM records", [], |r| r.get(0))?;
-        let first_ts: Option<i64> =
-            conn.query_row("SELECT MIN(timestamp_ns) FROM records", [], |r| r.get(0)).ok();
-        let last_ts: Option<i64> =
-            conn.query_row("SELECT MAX(timestamp_ns) FROM records", [], |r| r.get(0)).ok();
+        let remaining_rows: u64 = conn.query_row("SELECT COUNT(*) FROM records", [], |r| r.get(0))?;
+        let first_ts: Option<u64> = conn.query_row("SELECT MIN(timestamp_ns) FROM records", [], |r| r.get(0)).ok();
+        let last_ts: Option<u64> = conn.query_row("SELECT MAX(timestamp_ns) FROM records", [], |r| r.get(0)).ok();
 
         // File size info (approx.)
-        let page_count: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
-        let page_size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+        let page_count: u64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+        let page_size: u64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
         let file_bytes = page_count * page_size;
 
         Ok::<_, anyhow::Error>(PruneResult {

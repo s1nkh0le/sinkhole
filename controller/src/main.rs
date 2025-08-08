@@ -1,14 +1,16 @@
+use std::time::Duration;
 use crate::api::routes_controller;
 use tokio::net::TcpListener;
 use tracing_subscriber::{fmt, EnvFilter};
+use sync::{sync_port_rules, sync_records_ecam};
 
 mod api;
 mod config;
 mod db;
 mod observability;
-mod puller;
 mod state;
 mod sync;
+pub mod fetch;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -19,11 +21,26 @@ async fn main() -> anyhow::Result<()> {
     let db = db::init(&cfg.controller.db_path)?;
     let state = state::ControllerState::new(cfg.clone(), db.clone())?;
 
-    sync::spawn_all_state_sync(state.clone(), reqwest::Client::new(), cfg.clone());
-    puller::spawn_all_pull_tasks(state.clone(), reqwest::Client::new(), db.clone());
+    //sync_port_rules::spawn_all_state_sync(state.clone(), reqwest::Client::new(), cfg.clone());
+    // sync_records_ecam::spawn_all_pull_tasks(state.clone(), reqwest::Client::new(), db.clone());
+
+    let http = reqwest::Client::new();
+
+    // NEW
+    sync::sync_health::spawn(state.clone(), http.clone());
+    sync::sync_state::spawn(state.clone(), http.clone(), Duration::from_secs(cfg.controller.sync_interval_secs));
+    sync::sync_dbs::spawn(state.clone(), http.clone(), db.clone());
+    
+    
+    
+
+    let http = reqwest::Client::new();
+    let interval = Duration::from_secs(cfg.controller.sync_interval_secs);
+    sync::sync_state::spawn(state.clone(), http.clone(), interval);
 
     let app = routes_controller::build_router(state.clone());
 
+    // todo use configs
     let bind = std::env::var("CONTROLLER_BIND").unwrap_or_else(|_| "0.0.0.0:7000".into());
     let listener = TcpListener::bind(&bind).await?;
     tracing::info!("controller API listening on {bind}");

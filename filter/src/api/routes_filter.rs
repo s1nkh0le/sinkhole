@@ -11,12 +11,16 @@ use axum::{Router, routing::get, middleware};
 use axum::routing::{delete, put};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use crate::api::api_state::get_state;
 use crate::api::middleware_auth::require_token;
 
-// global state
+// global fetch
 use crate::api::api_health::__path_get_health;
 use crate::api::api_health::__path_get_version;
 use crate::api::api_health::__path_get_teapot;
+
+// ecam
+use crate::api::api_state::__path_get_state;
 
 // ecam
 use crate::api::api_ecam::__path_get_ecam;
@@ -48,10 +52,13 @@ pub type SharedState = (Config, PortRegistry, DbHandle);
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        // global state
+        // global fetch
         get_health,
         get_version,
         get_teapot,
+
+        // state
+        get_state,
 
         // ecam
         get_ecam,
@@ -85,6 +92,8 @@ pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) ->
         .route("/auth/ping", get(get_health))
         .route("/version", get(get_version))
         .route("/teapot", get(get_teapot))
+
+        .route("/state", get(get_state))
 
         .route("/ecam", get(get_ecam))
 

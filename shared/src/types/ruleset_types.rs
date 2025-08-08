@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
 use crate::types::base_types::{Mode, RuleDirection, Scope};
+use crate::utils::version::{calc_version_combined_copyover, calc_version_info, calc_version_ruleset};
 
 fn default_enabled() -> bool {
     true
@@ -138,8 +139,7 @@ pub struct FilterDef {
     pub enabled: bool,
 }
 
-
-// TODO we need to add a version for also config, since this is just sha256(matches+filters)
+/// Port information and metadata
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PortInfo {
     /// The public-facing port number that clients connect to
@@ -153,12 +153,11 @@ pub struct PortInfo {
     /// Optional hex color code (e.g. `"#ff00ff"`) used for UI indicators
     pub hex_color: Option<String>,
     /// List of scopes that are enabled for this port
-    pub enabled_scopes: Vec<Scope>,
-    /// The version identifier (hashed string) of this port’s ruleset
-    /// Not including any port information, hash of just the ruleset
-    pub version: String,
+    pub enabled_scopes: Vec<Scope>
 }
 
+
+/// Ser of markers and filters for a given port runtime configuration
 #[derive(Serialize, Deserialize, Clone, Debug, ToSchema)]
 pub struct RuleSetRaw {
     /// List of markers

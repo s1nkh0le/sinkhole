@@ -5,7 +5,8 @@ use rusqlite::{Connection, params};
 use shared::types::record_types::EvaluationRecord;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::{info};
+use crate::db::query_insert::{save_config_row, save_ruleset_row};
 
 #[derive(Clone)]
 pub struct DbHandle {
@@ -22,7 +23,8 @@ pub enum DbCmd {
         ts_ns: i64,
     },
     SaveConfig {
-        port: u16,
+        external_port: u16,
+        upstream_port: u16,
         json: String,
         ts_ns: i64,
     },
@@ -75,8 +77,8 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                                 );
                             }
                         }
-                        DbCmd::SaveConfig { port, json, ts_ns } => {
-                            if let Err(e) = save_config_row(&mut conn, port, &json, ts_ns) {
+                        DbCmd::SaveConfig { external_port, upstream_port, json, ts_ns } => {
+                            if let Err(e) = save_config_row(&mut conn, external_port, upstream_port, &json, ts_ns) {
                                 sink_ecam::record(
                                     Severity::Error,
                                     Origin::DB,
@@ -134,53 +136,5 @@ fn flush_records(conn: &mut Connection, buf: &mut Vec<EvaluationRecord>) -> anyh
         }
     }
     tx.commit()?;
-    Ok(())
-}
-
-fn save_ruleset_row(
-    conn: &mut Connection,
-    port: u16,
-    version: &str,
-    json: &str,
-    ts_ns: i64,
-) -> anyhow::Result<()> {
-    conn.execute(
-        "INSERT INTO port_rulesets (port, version, json, updated_at_ns)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(port) DO UPDATE SET version=excluded.version, json=excluded.json, updated_at_ns=excluded.updated_at_ns",
-        params![port as i64, version, json, ts_ns]
-    )?;
-    Ok(())
-}
-
-fn save_config_row(conn: &mut Connection, port: u16, json: &str, ts_ns: i64) -> anyhow::Result<()> {
-    // Extract small fields for convenience? We can defer; json has all.
-    let v: serde_json::Value = serde_json::from_str(json)?;
-    let name = v.get("name").and_then(|x| x.as_str());
-    let comment = v.get("comment").and_then(|x| x.as_str());
-    let hex_color = v.get("hex_color").and_then(|x| x.as_str());
-    let scopes_j = v
-        .get("enabled_scopes")
-        .unwrap_or(&serde_json::Value::Null)
-        .to_string();
-
-    conn.execute(
-        "INSERT INTO port_configs (port, name, comment, hex_color, enabled_scopes_json, updated_at_ns)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(port) DO UPDATE SET
-           name=excluded.name,
-           comment=excluded.comment,
-           hex_color=excluded.hex_color,
-           enabled_scopes_json=excluded.enabled_scopes_json,
-           updated_at_ns=excluded.updated_at_ns",
-        params![
-            port as i64,
-            name,
-            comment,
-            hex_color,
-            scopes_j,
-            ts_ns
-        ]
-    )?;
     Ok(())
 }

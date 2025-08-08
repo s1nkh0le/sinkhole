@@ -10,7 +10,7 @@ use shared::utils::hashes::sha256_hex;
 
 const FILTER_TOKEN_FIELD: &'static str = "token";
 
-/// Middleware that enforces `?ctrl_token=...` against the configured hash.
+/// Middleware that enforces `?token=...` against the configured hash.
 /// If no hash is configured, it lets the request pass (with a WARN logged at init time).
 pub async fn require_token(
     cfg: Config,
@@ -19,14 +19,19 @@ pub async fn require_token(
 ) -> Response {
     let expected = cfg.auth_hash.as_ref();
     if expected.is_none() {
-        sink_ecam::record(
-            Severity::Warn,
-            Origin::Security,
-            "Auth hash is not set, auth disabled | allowing control action",
-            None,
-        );
-        return next.run(req).await;
+        if cfg.debug {
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::Security,
+                "Auth hash is not set, auth disabled | allowing control action",
+                None,
+            );
+            return next.run(req).await;
+        } else {
+            panic!("auth token not set, auth disabled in release mode | shutting down");
+        }
     }
+
     let expected = expected.unwrap();
 
     // Extract token from query string

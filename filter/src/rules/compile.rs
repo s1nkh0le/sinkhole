@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::version::calc_version_raw_ruleset;
+use shared::utils::version::calc_version_ruleset;
 use crate::matcher::Matcher;
 use crate::matcher::always::AlwaysMatcher;
 use crate::matcher::method_regex::MethodRegexMatcher;
@@ -13,6 +13,7 @@ use anyhow::{Result, anyhow, bail};
 use shared::types::ruleset_types::{FilterDef, MarkerDef, MatcherDef, RuleSetRaw};
 use shared::types::base_types::{Mode, RuleDirection, Scope};
 
+#[derive(Clone)]
 pub struct CompiledMarker {
     pub id: String,
     pub name: Option<String>,
@@ -23,6 +24,7 @@ pub struct CompiledMarker {
     pub meta: MatcherMeta,
 }
 
+#[derive(Clone)]
 pub struct CompiledFilter {
     pub id: String,
     pub name: Option<String>,
@@ -36,13 +38,15 @@ pub struct CompiledFilter {
     pub meta: MatcherMeta,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MatcherMeta {
     pub comparator: String, // "regex" | "size"
     pub target: String,     // e.g. "header:user-agent", "body", "stream", "path", "meta"
     pub condition: String,  // human‑readable: `regex /foo/` or `size > 1000`
 }
 
+
+#[derive(Clone)]
 pub struct CompiledRuleSet {
     pub version: String,
     pub markers: Vec<CompiledMarker>,
@@ -53,7 +57,7 @@ pub struct CompiledRuleSet {
 // Public entry
 // --------------------------------------------------
 pub fn compile_ruleset(raw: &RuleSetRaw) -> Result<CompiledRuleSet> {
-    let version = calc_version_raw_ruleset(raw)?;
+    let version_ruleset = calc_version_ruleset(raw);
 
     let markers = raw
         .markers
@@ -68,7 +72,7 @@ pub fn compile_ruleset(raw: &RuleSetRaw) -> Result<CompiledRuleSet> {
         .collect::<Result<Vec<_>>>()?;
 
     Ok(CompiledRuleSet {
-        version,
+        version: version_ruleset,
         markers,
         filters,
     })

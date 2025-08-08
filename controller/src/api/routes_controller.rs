@@ -1,7 +1,7 @@
 use crate::api::api_ecam::{get_aggregated_ecam, get_service_ecam};
-use crate::api::api_ports::{get_port_config, get_port_config_cached, get_list_ports, put_port_config};
+use crate::api::api_ports::{get_port_config, get_list_ports, put_port_config};
 use crate::api::api_records::{get_aggregated_records, get_service_port_records};
-use crate::api::api_ruleset::{get_ruleset, get_ruleset_cached, put_ruleset, put_validate_ruleset};
+use crate::api::api_ruleset::{get_ruleset, put_ruleset, put_validate_ruleset};
 use crate::api::api_state::get_state;
 use crate::api::middleware_auth::require_ctrl_token;
 use crate::api::api_health::{get_health, get_list_services};
@@ -12,7 +12,7 @@ use utoipa::{OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 // paths generated methods
-/// global state
+/// global fetch
 use crate::api::api_health::__path_get_health;
 use crate::api::api_health::__path_get_list_services;
 use crate::api::api_state::__path_get_state;
@@ -27,7 +27,6 @@ use crate::api::api_records::__path_get_service_port_records;
 
 /// ports config
 use crate::api::api_ports::__path_get_port_config;
-use crate::api::api_ports::__path_get_port_config_cached;
 use crate::api::api_ports::__path_put_port_config;
 use crate::api::api_ports::__path_get_list_ports;
 
@@ -35,12 +34,11 @@ use crate::api::api_ports::__path_get_list_ports;
 use crate::api::api_ruleset::__path_get_ruleset;
 use crate::api::api_ruleset::__path_put_ruleset;
 use crate::api::api_ruleset::__path_put_validate_ruleset;
-use crate::api::api_ruleset::__path_get_ruleset_cached;
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        // global state
+        // global fetch
         get_health,
         get_list_services,
         get_state,
@@ -56,12 +54,10 @@ use crate::api::api_ruleset::__path_get_ruleset_cached;
         // ports config
         get_list_ports,
         get_port_config, put_port_config,
-        get_port_config_cached,
 
         // rulesets
         get_ruleset, put_ruleset,
         put_validate_ruleset,
-        get_ruleset_cached
     ),
     tags(
         (name = "controller", description = "Sinkhole Controller API"),
@@ -78,10 +74,10 @@ pub fn build_router(state: ControllerState) -> Router {
     let cfg_for_mw = state.cfg();
 
     let protected = Router::new()
-        // global state
+        // global fetch
         .route("/auth/ping", get(get_health))
         .route("/services", get(get_list_services))
-        .route("/state", get(get_state))
+        .route("/fetch", get(get_state))
 
         // ecam
         .route("/ecam", get(get_aggregated_ecam))
@@ -94,12 +90,10 @@ pub fn build_router(state: ControllerState) -> Router {
         // ports config
         .route("/services/{svc}/ports", get(get_list_ports))
         .route("/services/{svc}/ports/{port}/config", get(get_port_config).put(put_port_config))
-        .route("/services/{svc}/ports/{port}/config/cached", get(get_port_config_cached))
 
         // rulesets
         .route("/services/{svc}/ports/{port}/ruleset", get(get_ruleset).put(put_ruleset))
         .route("/services/{svc}/ports/{port}/ruleset/validate", put(put_validate_ruleset))
-        .route("/services/{svc}/ports/{port}/ruleset/cached", get(get_ruleset_cached))
 
         // auth
         .layer(middleware::from_fn({

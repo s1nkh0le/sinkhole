@@ -36,7 +36,7 @@ impl EcamSink {
 
     /// Copy out all events newer than `after_ns` (inclusive).
     /// If `after_ns == 0` you get the full buffer (capped).
-    pub fn snapshot(&self, after_ns: i64) -> Vec<EcamEvent> {
+    pub fn snapshot(&self, after_ns: u64) -> Vec<EcamEvent> {
         let guard = self.inner.read().unwrap();
         guard
             .iter()
@@ -60,7 +60,7 @@ pub fn record(
     }
 
     let ev = EcamEvent {
-        ts_ns: now_ns() as i64,
+        ts_ns: now_ns(),
         severity,
         origin,
         msg: msg.into(),

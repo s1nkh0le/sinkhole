@@ -8,6 +8,7 @@ use std::time::Duration;
 /// Per-controller configuration (global).
 #[derive(Debug, Clone)]
 pub struct ControllerCfg {
+    pub debug: bool,
     /// Address the controller HTTP server binds to (e.g. "0.0.0.0:7000").
     pub bind: SocketAddr,
     /// Path to the controller cache DB.
@@ -50,7 +51,11 @@ impl Config {
 
 pub fn load() -> Result<Config> {
     // ── Controller (globals) ───────────────────────────────────────────────
-    // Prefer CTRL_* keys; accept old names for compatibility.
+    let debug: bool = std::env::var("CTRL_DEBUG")
+        .ok()
+        .and_then(|v| Some(v.parse::<bool>().unwrap_or(false)))
+        .unwrap_or(false);
+    
     let bind_str = std::env::var("CTRL_BIND")
         .or_else(|_| std::env::var("CONTROLLER_BIND"))
         .unwrap_or_else(|_| "0.0.0.0:7000".to_string());
@@ -93,6 +98,7 @@ pub fn load() -> Result<Config> {
     }
 
     let controller = ControllerCfg {
+        debug,
         bind,
         db_path,
         pull_interval,

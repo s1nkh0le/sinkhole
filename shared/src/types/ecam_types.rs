@@ -36,7 +36,7 @@ pub enum Origin {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EcamEvent {
     /// Timestamp of the event
-    pub ts_ns: i64,
+    pub ts_ns: u64,
     pub severity: Severity,
     pub origin: Origin,
     /// Human-readable message describing what happened

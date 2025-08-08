@@ -1,65 +1,76 @@
 use anyhow::Result;
 use axum::http::StatusCode;
 use axum::Json;
-use serde::Deserialize;
 
+use crate::fetch::fetch_state::fetch_state;
 use crate::state::{ControllerState, Service};
 use reqwest::Client;
 use serde_json::json;
-use shared::types::ruleset_types::PortInfo;
 
-#[derive(Deserialize)]
-struct FilterPortsEnvelope {
-    status: String,
-    data: Vec<PortInfo>,
-}
-
-/// If the service has no ports recorded, fetch from filter `/ports` and populate `state`.
-pub async fn get_loaded_port_or_fetch(
+pub async fn ensure_snapshots(
     state: &ControllerState,
-    svc_id: &str,
-    http: &Client,
+    service_id: &str,
+    http:      &Client,
 ) -> Result<()> {
-    // fast path: port is already known, return from cache
-    if state
-        .read()
-        .services
-        .get(svc_id)
-        .map_or(true, |svc| !svc.ports.is_empty())
+    // Fast-path: already cached
+    if state.read().services
+        .get(service_id)
+        .map(|s| !s.ports.is_empty())
+        .unwrap_or(false)
     {
         return Ok(());
     }
 
-    let (base, token) = {
+    // One-shot pull from filter ----------------------------------------
+    let (base_url, token) = {
         let g = state.read();
-        let svc = g.services.get(svc_id).expect("checked earlier");
+        let svc = g.services.get(service_id)
+            .ok_or_else(|| anyhow::anyhow!("unknown service"))?;
         (svc.cfg.base_url.clone(), svc.cfg.token.clone())
     };
 
-    let resp = http
-        .get(format!("{base}/ports"))
-        .query(&[("token", token.as_str())])
-        .send()
-        .await?
-        .json::<FilterPortsEnvelope>()
-        .await?;
+    let snaps = fetch_state(http, &base_url, &token, std::time::Duration::from_secs(5)).await?;
 
-    if resp.status != "ok" {
-        anyhow::bail!("filter /ports returned non-ok: {}", resp.status);
+    // Merge into state
+    {
+        let mut w = state.write();
+        let svc = w.services.get_mut(service_id)
+            .ok_or_else(|| anyhow::anyhow!("unknown service"))?;
+
+        let mut dummy = std::collections::HashMap::new();
+        svc.merge_snapshots(snaps, &mut dummy, service_id);
     }
 
-    // Insert any new ports
-    let mut w = state.write();
-    let svc = w.services.get_mut(svc_id).expect("present");
-    for row in resp.data {
-        svc.ports
-            .entry(row.public)
-            .or_insert_with(|| crate::state::Port::new());
-    }
     Ok(())
 }
 
-pub fn ensure_service_exists(
+pub fn ensure_port_exists(
+    state: &ControllerState,
+    service_id: &str,
+    port: u16,
+) -> bool {
+    state.read()
+        .services
+        .get(service_id)
+        .and_then(|s| s.ports.get(&port))
+        .map(|p| p.snap.is_some())
+        .unwrap_or(false)
+}
+
+pub fn ensure_service_exists(state: &ControllerState, service_id: &str) -> bool {
+    state.read().services.contains_key(service_id)
+}
+
+
+
+
+
+
+
+
+
+
+pub fn __legacy_ensure_service_exists(
     state: &ControllerState,
     svc_id: &str,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -73,7 +84,8 @@ pub fn ensure_service_exists(
     }
 }
 
-pub fn ensure_service_port_exists(
+
+pub fn __legacy_ensure_service_port_exists(
     state: &ControllerState,
     svc_id: &str,
     port: u16,

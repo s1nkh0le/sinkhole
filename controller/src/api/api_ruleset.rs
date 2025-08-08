@@ -1,3 +1,5 @@
+use crate::api::fetchers::{put_ruleset_filter, validate_ruleset_filter};
+use crate::api::util::{ensure_port_exists, ensure_service_exists, ensure_snapshots};
 use crate::state::ControllerState;
 use axum::{
     extract::{OriginalUri, Path, State},
@@ -7,36 +9,20 @@ use axum::{
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::warn;
-use utoipa::ToSchema;
 use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkEnvelope};
 use shared::types::ruleset_types::RuleSetRaw;
+use shared::utils::version::calc_version_combined_copyover;
+use utoipa::ToSchema;
 
 /// Successful ruleset reply
 #[derive(Serialize, ToSchema)]
-pub struct RulesetOkData {
+pub struct CtrlReplyRulesetOkData {
     pub ruleset: RuleSetRaw,
-    version: String,
+    pub version: String,
 }
-impl shared::api::ok::sealed::Sealed for RulesetOkData {}
-impl shared::api::ok::OkData for RulesetOkData {}
-
-
-
-
-/// Envelope to parse filter’s response for /ruleset.
-#[derive(Deserialize)]
-struct FilterResponseRulesetEnvelope {
-    status: String,
-    data: FilterResponseRulesetData,
-}
-#[derive(Deserialize)]
-struct FilterResponseRulesetData {
-    ruleset: RuleSetRaw,
-    version: String,
-}
-
+impl shared::api::ok::sealed::Sealed for CtrlReplyRulesetOkData {}
+impl shared::api::ok::OkData for CtrlReplyRulesetOkData {}
 
 
 #[utoipa::path(
@@ -48,7 +34,7 @@ struct FilterResponseRulesetData {
         ("port" = u16, Path, description = "Public port"),
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<RulesetOkData>),
+        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyRulesetOkData>),
         (status = 400, description = "Invalid request", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
@@ -62,179 +48,46 @@ pub async fn get_ruleset(
     Path((service_id, port)): Path<(String, u16)>,
     State(state): State<ControllerState>,
 ) -> (StatusCode, Json<Value>) {
-    // Validate service & port in controller state
-    {
+    // ── 1) Validate service id ──────────────────────────────────────────
+    if !ensure_service_exists(&state, &service_id) {
+        return ErrorEnvelope::not_found("service_not_found", uri.path())
+            .with_title("Unknown service")
+            .with_detail(format!("service_id '{service_id}' is not known"))
+            .into_result();
+    }
+
+    // ── 2) Ensure snapshots cached (one-shot fetch if needed) ───────────
+    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+        return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
+            .with_title("Ruleset not cached")
+            .with_detail(e.to_string())
+            .into_result();
+    }
+
+    // ── 3) Validate port existence after caching attempt ────────────────
+    if !ensure_port_exists(&state, &service_id, port) {
+        return ErrorEnvelope::not_found("port_not_found", uri.path())
+            .with_title("Unknown port")
+            .with_detail(format!(
+                "port '{port}' is not known for service '{service_id}'"
+            ))
+            .into_result();
+    }
+
+    // ── 4) Extract ruleset + version from cached snapshot ───────────────
+    let (ruleset, version) = {
         let g = state.read();
-        let svc = match g.services.get(&service_id) {
-            Some(s) => s,
-            None => {
-                return ErrorEnvelope::not_found("sanitization", uri.path())
-                    .with_title("Unknown service")
-                    .with_detail(format!("service_id '{service_id}' is not known"))
-                    .into_result()
-            }
-        };
-        if !svc.ports.contains_key(&port) {
-            return ErrorEnvelope::not_found("sanitization", uri.path())
-                .with_title("Unknown port")
-                .with_detail(format!("port {port} is not known for service '{service_id}'"))
-                .into_result();
-        }
-    }
+        let snap = g.services
+            .get(&service_id)
+            .and_then(|svc| svc.ports.get(&port))
+            .and_then(|p| p.snap.as_ref())
+            .expect("port validated");
 
-    if let Some((ruleset, version)) = state.read()
-        .services
-        .get(&service_id)
-        .and_then(|s| s.ports.get(&port))
-        .and_then(|p| p.ruleset.clone().zip(p.ruleset_version.clone()))
-    {
-        return ok(RulesetOkData { ruleset, version });
-    }
-
-    warn!("[get_ruleset(service_id={}, port={}), GET {}] cache miss, fetching ruleset from filter", service_id, port, uri.path());
-
-    // Fetch from filter
-    let (base, token) = {
-        let g = state.read();
-        let svc = g.services.get(&service_id).expect("validated above");
-        (svc.cfg.base_url.clone(), svc.cfg.token.clone())
+        (snap.ruleset.clone(), snap.ver_ruleset.clone())
     };
 
-    let url = format!("{base}/ports/{port}/ruleset");
-    let resp = Client::new()
-        .get(&url)
-        .query(&[("token", token.as_str())])
-        .send()
-        .await;
-
-    // Network error to filter
-    let Ok(resp) = resp else {
-        return ErrorEnvelope::bad_gateway("filter_unreachable", uri.path())
-            .with_title("Filter unreachable")
-            .with_detail("controller could not reach the filter")
-            .into_result();
-    };
-
-    if !resp.status().is_success() {
-        return ErrorEnvelope::bad_gateway("filter_http_error", uri.path())
-            .with_title("Filter returned error")
-            .with_detail(format!("filter responded with {}", resp.status()))
-            .into_result();
-    }
-
-    let env = match resp.json::<FilterResponseRulesetEnvelope>().await {
-        Ok(v) => v,
-        Err(e) => {
-            return ErrorEnvelope::bad_gateway("bad_filter_payload", uri.path())
-                .with_title("Invalid filter JSON")
-                .with_detail(e.to_string())
-                .into_result()
-        }
-    };
-
-    if env.status != "ok" {
-        return ErrorEnvelope::bad_gateway("filter_non_ok", uri.path())
-            .with_title("Filter returned non-ok")
-            .with_detail("ruleset endpoint signaled failure")
-            .into_result();
-    }
-
-    // Cache & return
-    // let rs = env.data.ruleset;
-    // state.write()
-    //     .services
-    //     .get_mut(&service_id)
-    //     .and_then(|s| s.ports.get_mut(&port))
-    //     .map(|p| p.ruleset = Some(rs.clone()));
-    // ok(RulesetOkData { ruleset: rs, version: env.data.version });
-
-
-
-    let (rs, version) = (env.data.ruleset.clone(), env.data.version.clone());
-
-    {
-        let mut guard = state.write();
-        if let Some(p) = guard
-            .services
-            .get_mut(&service_id)
-            .and_then(|s| s.ports.get_mut(&port))
-        {
-            p.ruleset = Some(rs.clone());
-            p.ruleset_version = Some(version.clone()); // todo maybe ??
-        }
-    }
-
-    ok(RulesetOkData { ruleset: rs, version })
+    ok(CtrlReplyRulesetOkData { ruleset, version })
 }
-
-
-
-
-
-#[utoipa::path(
-    get,
-    path = "/services/{service_id}/ports/{port}/ruleset/cached",
-    params(
-        ("ctrl_token" = String, description = "Authentication token"),
-        ("service_id" = String, Path, description = "Service identifier"),
-        ("port" = u16, Path, description = "Public port"),
-    ),
-    responses(
-        (status = 200, description = "OK", body = OkEnvelope<RulesetOkData>),
-        (status = 400, description = "Invalid request", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
-        (status = 503, description = "Service Unavailable", body = ErrorEnvelope),
-    ),
-    tags = ["controller", "ruleset"]
-)]
-pub async fn get_ruleset_cached(
-    OriginalUri(uri): OriginalUri,
-    Path((service_id, port)): Path<(String, u16)>,
-    State(state): State<ControllerState>,
-) -> (StatusCode, Json<Value>) {
-    {
-        let g = state.read();
-        let svc = match g.services.get(&service_id) {
-            Some(s) => s,
-            None => {
-                return ErrorEnvelope::not_found("sanitization", uri.path())
-                    .with_title("Unknown service")
-                    .with_detail(format!("service_id '{service_id}' is not known"))
-                    .into_result()
-            }
-        };
-        if !svc.ports.contains_key(&port) {
-            return ErrorEnvelope::not_found("sanitization", uri.path())
-                .with_title("Unknown port")
-                .with_detail(format!("port {port} is not known for service '{service_id}'"))
-                .into_result();
-        }
-    }
-
-    if let Some((ruleset, version)) = state
-        .read()
-        .services
-        .get(&service_id)
-        .and_then(|s| s.ports.get(&port))
-        .and_then(|p| p.ruleset.clone().zip(p.ruleset_version.clone()))
-    {
-        return ok(RulesetOkData { ruleset, version });
-    }
-
-    // Cache miss in cached version results in an error
-    ErrorEnvelope::not_found("cache_miss", uri.path())
-        .with_title("Ruleset not cached")
-        .with_detail(format!(
-            "Ruleset for service_id={service_id} and port={port} is not available in controller cache.\
-             Call /services/{service_id}/ports/{port}/ruleset to fetch manually from the filter, or wait for the sync daemon to pull it from the filter.\
-             If you keep getting this error, the filter's syncer may be inoperative."
-        ))
-        .into_result()
-}
-
-
 
 
 
@@ -249,7 +102,6 @@ impl shared::api::ok::sealed::Sealed for RulesetValidationOkData {}
 impl shared::api::ok::OkData for RulesetValidationOkData {}
 
 
-
 #[utoipa::path(
     put,
     path = "/services/{service_id}/ports/{port}/ruleset",
@@ -260,7 +112,7 @@ impl shared::api::ok::OkData for RulesetValidationOkData {}
     ),
     request_body = RuleSetRaw,
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<RulesetOkData>),
+        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyRulesetOkData>),
         (status = 400, description = "Filter rejected ruleset", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
@@ -275,95 +127,69 @@ pub async fn put_ruleset(
     State(state): State<ControllerState>,
     Json(body): Json<RuleSetRaw>,
 ) -> (StatusCode, Json<Value>) {
-    {
-        let g = state.read();
-        let svc = match g.services.get(&service_id) {
-            Some(s) => s,
-            None => {
-                return ErrorEnvelope::not_found("sanitization", uri.path())
-                    .with_title("Unknown service")
-                    .with_detail(format!("service_id '{service_id}' is not known"))
-                    .into_result()
-            }
-        };
-        if !svc.ports.contains_key(&port) {
-            return ErrorEnvelope::not_found("sanitization", uri.path())
-                .with_title("Unknown port")
-                .with_detail(format!("port {port} is not known for service '{service_id}'"))
-                .into_result();
-        }
+    // ── 1) Validate service & snapshots ─────────────────────────────────
+    if !ensure_service_exists(&state, &service_id) {
+        return ErrorEnvelope::not_found("service_not_found", uri.path())
+            .with_title("Unknown service")
+            .with_detail(format!("service_id '{service_id}' is not known"))
+            .into_result();
     }
 
-    let (base, token) = {
+    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+        return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
+            .with_title("Ruleset not cached")
+            .with_detail(e.to_string())
+            .into_result();
+    }
+
+    if !ensure_port_exists(&state, &service_id, port) {
+        return ErrorEnvelope::not_found("port_not_found", uri.path())
+            .with_title("Unknown port")
+            .with_detail(format!(
+                "port '{port}' is not known for service '{service_id}'"
+            ))
+            .into_result();
+    }
+
+    // ── 2) Snapshot creds ------------------------------------------------
+    let (base_url, token) = {
         let g = state.read();
-        let svc = g.services.get(&service_id).expect("validated above");
+        let svc = g.services.get(&service_id).expect("validated");
         (svc.cfg.base_url.clone(), svc.cfg.token.clone())
     };
 
-    let url = format!("{base}/ports/{port}/ruleset");
-    let resp = Client::new()
-        .put(&url)
-        .query(&[("token", token.as_str())])
-        .json(&body)
-        .send()
-        .await;
-
-    // Network error to filter
-    let Ok(resp) = resp else {
-        return ErrorEnvelope::bad_gateway("filter_unreachable", uri.path())
-            .with_title("Filter unreachable")
-            .with_detail("controller could not reach the filter")
-            .into_result();
-    };
-
-    // Parse filter JSON whatever the HTTP status is, because the filter may
-    // return structured errors with non-2xx and we want to surface details.
-    let payload: FilterResponseRulesetEnvelope = match resp.json::<FilterResponseRulesetEnvelope>().await {
-        Ok(v) => v,
-        Err(e) => {
-            return ErrorEnvelope::bad_gateway("bad_filter_payload", uri.path())
-                .with_title("Invalid filter JSON")
-                .with_detail(e.to_string())
-                .into_result()
+    // ── 3) Relay PUT to filter ------------------------------------------
+    let (ruleset, ver_ruleset) = match put_ruleset_filter(&Client::new(), &base_url, &token, port, &body, ).await {
+        Ok(t) => t,
+        Err(err) => {
+            return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
+                .with_title("Filter unreachable")
+                .with_detail(err.to_string())
+                .into_result();
         }
     };
 
-    // If filter says non-ok, return 400 with details from the filter payload.
-    // if payload.get("status") != Some(&Value::String("ok".to_string())) {
-    //     // Surface filter payload as detail to help debugging.
-    //     return ErrorEnvelope::bad_request("filter_rejected_ruleset", uri.path())
-    //         .with_title("Filter rejected ruleset")
-    //         .with_detail(payload.to_string())
-    //         .into_result();
-    // }
-
-    // On success, cache and normalize RulesetOkData.
-    //state.write()
-    //    .services
-    //    .get_mut(&service_id)
-    //    .and_then(|s| s.ports.get_mut(&port))
-    //    .map(|p| p.ruleset = Some(body.clone()));
-    //ok(RulesetOkData { ruleset: body })
-
-
-
-    let (rs, version) = (payload.data.ruleset, payload.data.version);
-
-    // 2. Lock & update in one go
+    // ── 4) Update cached snapshot ---------------------------------------
     {
-        let mut guard = state.write();
-        if let Some(p) = guard
-            .services
+        let mut w = state.write();
+        if let Some(p) = w.services
             .get_mut(&service_id)
-            .and_then(|s| s.ports.get_mut(&port))
+            .and_then(|svc| svc.ports.get_mut(&port))
         {
-            p.ruleset = Some(rs.clone());
-            p.ruleset_version = Some(version.clone());
+            if let Some(mut snap) = p.snap.take() {
+                snap.ruleset      = ruleset.clone();
+                snap.ver_ruleset  = ver_ruleset.clone();
+                snap.ver_combined = calc_version_combined_copyover(&snap.ver_info, &ver_ruleset);
+                p.snap = Some(snap);
+            }
         }
-    } // write‐lock drops here
+    }
 
-    // 3. Return exactly what you just cached
-    ok(RulesetOkData { ruleset: rs, version })
+    // ── 5) Reply to client ----------------------------------------------
+    ok(CtrlReplyRulesetOkData {
+        ruleset,
+        version: ver_ruleset,
+    })
 }
 
 
@@ -377,7 +203,7 @@ pub async fn put_ruleset(
     ),
     request_body = RuleSetRaw,
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<RulesetOkData>),
+        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyRulesetOkData>),
         (status = 400, description = "Filter rejected ruleset", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
@@ -392,56 +218,51 @@ pub async fn put_validate_ruleset(
     State(state): State<ControllerState>,
     Json(body): Json<RuleSetRaw>,
 ) -> (StatusCode, Json<Value>) {
-    {
-        let g = state.read();
-        let svc = match g.services.get(&service_id) {
-            Some(s) => s,
-            None => {
-                return ErrorEnvelope::not_found("sanitization", uri.path())
-                    .with_title("Unknown service")
-                    .with_detail(format!("service_id '{service_id}' is not known"))
-                    .into_result()
-            }
-        };
-        if !svc.ports.contains_key(&port) {
-            return ErrorEnvelope::not_found("sanitization", uri.path())
-                .with_title("Unknown port")
-                .with_detail(format!("port {port} is not known for service '{service_id}'"))
-                .into_result();
-        }
+    // ── 1) Validate service/port (snapshots optional) ───────────────────
+    if !ensure_service_exists(&state, &service_id) {
+        return ErrorEnvelope::not_found("service_not_found", uri.path())
+            .with_title("Unknown service")
+            .with_detail(format!("service_id '{service_id}' is not known"))
+            .into_result();
+    }
+    if !ensure_port_exists(&state, &service_id, port) {
+        return ErrorEnvelope::not_found("port_not_found", uri.path())
+            .with_title("Unknown port")
+            .with_detail(format!(
+                "port '{port}' is not known for service '{service_id}'"
+            ))
+            .into_result();
     }
 
-    let (base, token) = {
+    // ── 2) Snapshot creds ----------------------------------------------
+    let (base_url, token) = {
         let g = state.read();
-        let svc = g.services.get(&service_id).expect("validated above");
+        let svc = g.services.get(&service_id).expect("validated");
         (svc.cfg.base_url.clone(), svc.cfg.token.clone())
     };
 
-    let url = format!("{base}/ports/{port}/ruleset/validate");
-
-    let resp = Client::new()
-        .put(&url)
-        .query(&[("token", token.as_str())])
-        .json(&body)
-        .send()
-        .await;
-
-    let Ok(resp) = resp else {
-        return ErrorEnvelope::bad_gateway("filter_unreachable", uri.path())
-            .with_title("Filter unreachable")
-            .with_detail("controller could not reach the filter")
-            .into_result();
-    };
-
-    let payload: RulesetValidationOkData = match resp.json::<RulesetValidationOkData>().await {
-        Ok(v) => v,
-        Err(e) => {
-            return ErrorEnvelope::bad_gateway("bad_filter_payload", uri.path())
-                .with_title("Invalid filter JSON")
-                .with_detail(e.to_string())
-                .into_result()
+    // ── 3) Relay validate call to filter --------------------------------
+    let (validated, _ruleset, maybe_err) = match validate_ruleset_filter(&Client::new(), &base_url, &token, port, &body, ).await {
+        Ok(t) => t,
+        Err(err) => {
+            return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
+                .with_title("Filter unreachable")
+                .with_detail(err.to_string())
+                .into_result();
         }
     };
 
-    ok(payload)
+    if !validated {
+        return ErrorEnvelope::bad_request("ruleset_validation_failed", uri.path())
+            .with_title("Filter rejected ruleset")
+            .with_detail(maybe_err.unwrap_or_else(|| "validation failed".into()))
+            .into_result();
+    }
+
+    // ── 4) Success: echo back what we received (ruleset + version hash) ─
+    // Version hash is meaningful only after install; we return placeholder.
+    ok(CtrlReplyRulesetOkData {
+        ruleset: body,
+        version: "<not-installed>".into(),
+    })
 }

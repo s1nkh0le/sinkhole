@@ -1,34 +1,30 @@
-use crate::api::util::{get_loaded_port_or_fetch};
+use crate::api::fetchers::put_port_config_http;
+use crate::api::util::{ensure_port_exists, ensure_service_exists, ensure_snapshots};
 use crate::state::ControllerState;
 use axum::extract::{OriginalUri, Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use reqwest::Client;
 use serde::Serialize;
-use serde_json::{json, Value};
-use tracing::warn;
+use serde_json::Value;
 use shared::api::err::ErrorEnvelope;
-use shared::api::ok::{ok, OkData, OkEnvelope, sealed};
+use shared::api::ok::{ok, sealed, OkData, OkEnvelope};
 use shared::types::ruleset_types::PortInfo;
-use utoipa::{ToSchema, IntoParams};
-
-/// Single Service information
-#[derive(Serialize, ToSchema)]
-struct PortRow {
-    port: u16,
-    has_info: bool,
-    has_ruleset: bool,
-    next_records_since: i64,
-}
+use shared::utils::version::calc_version_combined_copyover;
+use utoipa::ToSchema;
 
 /// Successful port listing data
 #[derive(Serialize, ToSchema)]
-struct PortListOkData {
-    rows: Vec<PortRow>,
+struct CtrlReplyPortListOkData {
+    ports: Vec<u16>,
 }
-impl sealed::Sealed for PortListOkData {}
-impl OkData for PortListOkData {}
+impl sealed::Sealed for CtrlReplyPortListOkData {}
+impl OkData for CtrlReplyPortListOkData {}
 
+
+/// /services/{service_id}/ports
+///
+/// Returns a brief listing of the ports for a given service
 #[utoipa::path(
     get,
     path = "/services/{service_id}/ports",
@@ -37,7 +33,7 @@ impl OkData for PortListOkData {}
         ("service_id" = String, Path, description = "Service id")
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
+        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyPortListOkData>),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Unknown service/port or not cached", body = ErrorEnvelope),
         (status = 500, description = "Server error", body = ErrorEnvelope),
@@ -49,51 +45,47 @@ pub async fn get_list_ports(
     Path(service_id): Path<String>,
     State(state): State<ControllerState>,
 ) -> (StatusCode, Json<Value>) {
-    // Ensure service exists
-    {
-        let g = state.read();
-        if !g.services.contains_key(&service_id) {
-            return ErrorEnvelope::not_found("sanitization", uri.path())
-                .with_title("Unknown service")
-                .with_detail(format!("service_id '{service_id}' is not known"))
-                .into_result();
-        }
-    }
-
-    // Lazy-load from filter if empty (best-effort)
-    if let Err(e) = get_loaded_port_or_fetch(&state, &service_id, &Client::new()).await {
-        return ErrorEnvelope::service_unavailable("port_info_unavailable", uri.path())
-            .with_title("Ports not loaded on controller")
-            .with_detail(format!("[list_ports(), {}] ensure_ports_loaded(service_id={}) failed, error={}", uri.path(), service_id, e.to_string()))
+    if !ensure_service_exists(&state, &service_id) {
+        return ErrorEnvelope::not_found("service_not_found", uri.path())
+            .with_title("Unknown service")
+            .with_detail(format!("service_id '{service_id}' is not known"))
             .into_result();
     }
 
-    // Build rows from current state
-    let rows: Vec<PortRow> = {
+    // Ensure snapshots (one-shot fetch if needed)
+    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+        return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
+            .with_title("Ports not cached")
+            .with_detail(e.to_string())
+            .into_result();
+    }
+
+    // Build rows from current fetch
+    let rows: Vec<u16> = {
         let g = state.read();
         let svc = g.services.get(&service_id).expect("checked above");
         svc.ports
             .iter()
-            .map(|(p, port)| PortRow {
-                port: *p,
-                has_info: port.info.is_some(),
-                has_ruleset: port.ruleset.is_some(),
-                next_records_since: port.port_cursors.next_records_since,
-            })
+            .map(|(p, port)| *p)
             .collect()
     };
 
-    ok(PortListOkData { rows })
+    ok(CtrlReplyPortListOkData { ports: rows })
 }
+
+
+
+
+
+
 
 /// Successful single port info reply
 #[derive(Serialize, ToSchema)]
-struct PortInfoOkData {
-    port_info: PortInfo,
+struct CtrlReplyPortInfo {
+    info: PortInfo,
 }
-impl sealed::Sealed for PortInfoOkData {}
-impl OkData for PortInfoOkData {}
-
+impl sealed::Sealed for CtrlReplyPortInfo {}
+impl OkData for CtrlReplyPortInfo {}
 
 #[utoipa::path(
     get,
@@ -104,7 +96,7 @@ impl OkData for PortInfoOkData {}
         ("port"       = u16,    Path,   description = "Port number")
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
+        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyPortInfo>),
         (status = 400, description = "Invalid request", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized", body = ErrorEnvelope),
         (status = 404, description = "Unknown service/port", body = ErrorEnvelope),
@@ -118,162 +110,44 @@ pub async fn get_port_config(
     Path((service_id, port)): Path<(String, u16)>,
     State(state): State<ControllerState>,
 ) -> (StatusCode, Json<Value>) {
-    // Check service & (best-effort) port existence in controller state
-    {
-        let g = state.read();
-        let Some(svc) = g.services.get(&service_id) else {
-            return ErrorEnvelope::not_found("sanitization", uri.path())
-                .with_title("Unknown service")
-                .with_detail(format!("service_id '{service_id}' is not known"))
-                .into_result();
-        };
-        if !svc.ports.contains_key(&port) {
-            // We allow lazy load below; this branch is only to give a clearer 404
-            // when the controller is sure it doesn't know this port yet.
-            // If you prefer best-effort fetch without 404, remove this check.
-            return ErrorEnvelope::not_found("sanitization", uri.path())
-                .with_title("Unknown port")
-                .with_detail(format!("port '{port}' is not known for service '{service_id}'"))
-                .into_result();
-        }
-    }
-
-    // If cached, return immediately
-    if let Some(info) = state
-        .read()
-        .services
-        .get(&service_id)
-        .and_then(|s| s.ports.get(&port))
-        .and_then(|p| p.info.clone())
-    {
-        return ok(PortInfoOkData { port_info: info });
-    }
-
-    warn!("[get_port_config(service_id={}, port={}), GET {}] cache miss, fetching port config from filter", service_id, port, uri.path());
-
-
-    // Fetch from filter, cache, and return
-    let (base, token) = {
-        let g = state.read();
-        let s = g.services.get(&service_id).expect("checked above");
-        (s.cfg.base_url.clone(), s.cfg.token.clone())
-    };
-
-    let url = format!("{base}/ports/{port}/config");
-    let resp = Client::new()
-        .get(&url)
-        .query(&[("token", token.as_str())])
-        .send()
-        .await;
-
-    let Ok(resp) = resp else {
-        return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-            .with_title("Filter unreachable")
-            .with_detail(format!("[get_port_info(service_id={}, port={}), GET {}] The request to the filter API 'GET {}' could not be compleated | can't connect to the filter", service_id, port, uri.path(), url))
-            .into_result();
-    };
-
-    if !resp.status().is_success() {
-        return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-            .with_title("Filter response unsuccessful")
-            .with_detail(format!("[get_port_info(service_id={}, port={}), GET {}] The request to the filter API 'GET {}' returned an error status of {} | ", service_id, port, uri.path(), url, resp.status()))
-            .into_result();
-    }
-
-    // Expect {"status":"ok","data":{...PortInfo...}}
-    let env = match resp.json::<Value>().await {
-        Ok(v) => v,
-        Err(e) => {
-            return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-                .with_title("Error parsing filter response")
-                .with_detail(format!("[get_port_info(service_id={}, port={}), GET {}] The request to the filter API 'GET {}' returned, but has an invalid json content | error={}", service_id, port, uri.path(), url, e))
-                .into_result();
-        }
-    };
-    if env.get("status") != Some(&json!("ok")) {
-        return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-            .with_title("Filter returned non-ok payload")
-            .with_detail(format!("[get_port_info(service_id={}, port={}), GET {}] The request to the filter API 'GET {}' returned with an error status", service_id, port, uri.path(), url))
-            .into_result();
-    }
-    let info: PortInfo = match serde_json::from_value(env.get("data").cloned().unwrap_or(json!({}))) {
-        Ok(pi) => pi,
-        Err(e) => {
-            return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-                .with_title("Error parsing filter response")
-                .with_detail(format!("[get_port_info(service_id={}, port={}), GET {}] The request to the filter API 'GET {}' returned a successful response, but could not parse its json content into PortInfo | error={}", service_id, port, uri.path(), url, e))
-                .into_result();
-        }
-    };
-
-    // Update cache with fetched port info
-    {
-        let mut w = state.write();
-        if let Some(svc) = w.services.get_mut(&service_id) {
-            if let Some(p) = svc.ports.get_mut(&port) {
-                p.info = Some(info.clone());
-            }
-        }
-    }
-
-    ok(PortInfoOkData { port_info: info })
-}
-
-
-
-#[utoipa::path(
-    get,
-    path = "/services/{service_id}/ports/{port}/config/cached",
-    params(
-        ("ctrl_token" = String,         description = "Authentication token"),
-        ("service_id" = String, Path,   description = "Service id"),
-        ("port"       = u16,    Path,   description = "Port number")
-    ),
-    responses(
-        (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown service/port or not cached", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
-        (status = 503, description = "Service Unavailable", body = ErrorEnvelope),
-    ),
-    tags = ["controller", "ports"]
-)]
-pub async fn get_port_config_cached(
-    OriginalUri(uri): OriginalUri,
-    Path((service_id, port)): Path<(String, u16)>,
-    State(state): State<ControllerState>,
-) -> (StatusCode, Json<Value>) {
-    // Validate service exists
-    let guard = state.read();
-    let Some(svc) = guard.services.get(&service_id) else {
-        return ErrorEnvelope::not_found("sanitization", uri.path())
+    // ── 1) Validate service id ──────────────────────────────────────────
+    if !ensure_service_exists(&state, &service_id) {
+        return ErrorEnvelope::not_found("service_not_found", uri.path())
             .with_title("Unknown service")
-            .with_detail(format!("servi ce_id '{service_id}' is not known"))
+            .with_detail(format!("service_id '{service_id}' is not known"))
             .into_result();
-    };
-
-    // Validate port exists (best-effort against controller state)
-    let Some(p) = svc.ports.get(&port) else {
-        return ErrorEnvelope::not_found("sanitization", uri.path())
-            .with_title("Unknown port")
-            .with_detail(format!("port '{port}' is not known for service '{service_id}'"))
-            .into_result();
-    };
-
-    // Return cached PortInfo if present
-    if let Some(info) = p.info.clone() {
-        return ok(PortInfoOkData { port_info: info });
     }
 
-    // Known service+port, but cache miss
-    ErrorEnvelope::service_unavailable("cache_miss", uri.path())
-        .with_title("Port info not cached")
-        .with_detail(format!(
-            "Port info for service_id={service_id} and port={port} is not available in controller cache.\
-             Call /services/{service_id}/ports/{port}/info to fetch manually from the filter, or wait for the sync daemon to pull it from the filter.\
-             If you keep getting this error, the filter's syncer may be inoperative."
-        ))
-        .into_result()
+    // ── 2) Ensure snapshots cached (one-shot remote fetch if needed) ────
+    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+        return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
+            .with_title("Port config not cached")
+            .with_detail(e.to_string())
+            .into_result();
+    }
+
+    // ── 3) Confirm the port exists after caching attempt ────────────────
+    if !ensure_port_exists(&state, &service_id, port) {
+        return ErrorEnvelope::not_found("port_not_found", uri.path())
+            .with_title("Unknown port")
+            .with_detail(format!(
+                "port '{port}' is not known for service '{service_id}'"
+            ))
+            .into_result();
+    }
+
+    // ── 4) Extract PortInfo from snapshot and reply ─────────────────────
+    let info = {
+        let g = state.read();
+        g.services
+            .get(&service_id)
+            .and_then(|svc| svc.ports.get(&port))
+            .and_then(|p| p.snap.as_ref())
+            .map(|snap| snap.info.clone())
+            .expect("checked with ensure_port_exists")
+    };
+
+    ok(CtrlReplyPortInfo { info })
 }
 
 
@@ -288,7 +162,7 @@ pub async fn get_port_config_cached(
         ("port"       = u16,    Path,   description = "Port number")
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<PortInfoOkData>),
+        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyPortInfo>),
         (status = 400, description = "Invalid request", body = ErrorEnvelope),
         (status = 401, description = "Unauthorized", body = ErrorEnvelope),
         (status = 404, description = "Unknown service/port", body = ErrorEnvelope),
@@ -303,60 +177,63 @@ pub async fn put_port_config(
     State(state): State<ControllerState>,
     Json(body): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
-    let svc_cfg = {
+    // ── 1) Validate service & port existence (cached or not) ────────────
+    if !ensure_service_exists(&state, &service_id) {
+        return ErrorEnvelope::not_found("service_not_found", uri.path())
+            .with_title("Unknown service")
+            .with_detail(format!("service_id '{service_id}' is not known"))
+            .into_result();
+    }
+
+    // We call ensure_snapshots so we have a snapshot to update afterward
+    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+        return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
+            .with_title("Port config not cached")
+            .with_detail(e.to_string())
+            .into_result();
+    }
+
+    if !ensure_port_exists(&state, &service_id, port) {
+        return ErrorEnvelope::not_found("port_not_found", uri.path())
+            .with_title("Unknown port")
+            .with_detail(format!(
+                "port '{port}' is not known for service '{service_id}'"
+            ))
+            .into_result();
+    }
+
+    // ── 2) Snapshot service creds --------------------------------------
+    let (base_url, token) = {
         let g = state.read();
-        let Some(svc) = g.services.get(&service_id) else {
-            return ErrorEnvelope::not_found("sanitization", uri.path())
-                .with_title("Unknown service")
-                .with_detail(format!("service_id '{service_id}' is not known"))
-                .into_result();
-        };
-        svc.cfg.clone()
+        let s = g.services.get(&service_id).expect("validated");
+        (s.cfg.base_url.clone(), s.cfg.token.clone())
     };
 
-    let url = format!("{}/ports/{}/config", svc_cfg.base_url, port);
-    match Client::new()
-        .put(&url)
-        .query(&[("token", svc_cfg.token.as_str())])
-        .json(&body)
-        .send()
-        .await
+    // ── 3) Relay PUT to filter -----------------------------------------
+    let (info, ver_info) = match put_port_config_http(&Client::new(), &base_url, &token, port, &body, ).await {
+        Ok(t) => t,
+        Err(err) => {
+            return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
+                .with_title("Filter unreachable")
+                .with_detail(err.to_string())
+                .into_result();
+        }
+    };
+
+    // ── 4) Update cached snapshot --------------------------------------
     {
-        Ok(resp) => {
-            let code = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-
-            if code != StatusCode::OK {
-                return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-                    .with_title("Filter returned non-ok payload")
-                    .with_detail(format!("[put_port_config(service_id={}, port={}), GET {}] The request to the filter API 'PUT {}' returned with an status_code={}", service_id, port, uri.path(), url, code))
-                    .into_result();
-            }
-
-            match resp.json::<Value>().await {
-                Ok(body) => {
-                    let info: PortInfo = match serde_json::from_value(body.get("data").cloned().unwrap_or(json!({}))) {
-                        Ok(pi) => pi,
-                        Err(e) => {
-                            return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-                                .with_title("Error parsing filter response")
-                                .with_detail(format!("[put_port_config(service_id={}, port={}), PUT {}] The request to the filter API 'PUT {}' returned a successful response, but could not parse its json content into PortInfo | error={}", service_id, port, uri.path(), url, e))
-                                .into_result();
-                        }
-                    };
-
-                    ok(PortInfoOkData {
-                        port_info: info
-                    })
-                },
-                Err(e) => ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-                    .with_title("Error parsing filter response")
-                    .with_detail(format!("[put_port_config(service_id={}, port={}), PUT {}] The request to the filter API 'PUT {}' returned, but has an invalid json content | error={}", service_id, port, uri.path(), url, e))
-                    .into_result()
+        let mut w = state.write();
+        if let Some(svc) = w.services.get_mut(&service_id) {
+            if let Some(p) = svc.ports.get_mut(&port) {
+                if let Some(mut snap) = p.snap.take() {
+                    snap.info       = info.clone();
+                    snap.ver_info   = ver_info.clone();
+                    snap.ver_combined = calc_version_combined_copyover(&ver_info, &snap.ver_ruleset);
+                    p.snap = Some(snap);
+                }
             }
         }
-        Err(e) => ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-            .with_title("Filter unreachable")
-            .with_detail(format!("[put_port_config(service_id={}, port={}), PUT {}] The request to the filter API 'PUT {}' could not be compleated | can't connect to the filter", service_id, port, uri.path(), url))
-            .into_result()
     }
+
+    ok(CtrlReplyPortInfo { info })
 }

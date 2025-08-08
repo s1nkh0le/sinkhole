@@ -25,8 +25,12 @@ pub async fn require_ctrl_token(
 ) -> Response {
     let expected = cfg.ctrl_token_hash.as_ref();
     if expected.is_none() {
-        warn!("[require_ctrl_token()] Auth disabled, allowing controller traffic");
-        return next.run(req).await;
+        if cfg.debug {
+            warn!("[require_ctrl_token()] Auth disabled, allowing controller traffic");
+            return next.run(req).await;
+        } else {
+            panic!("auth token not set, auth disabled in release mode | shutting down");
+        }
     }
     let expected = expected.unwrap();
 

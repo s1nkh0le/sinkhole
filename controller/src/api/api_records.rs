@@ -181,7 +181,7 @@ struct RecordsNorm {
 }
 
 async fn records_core(state: ControllerState, q: RecordsNorm, instance: &str) -> (StatusCode, Json<Value>) {
-    // Best-effort existence checks (against controller state snapshot)
+    // Best-effort existence checks (against controller fetch snapshot)
     if let Some(ref sid) = q.service_id {
         let g = state.read();
         let svc = match g.services.get(sid) {

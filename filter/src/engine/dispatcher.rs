@@ -27,8 +27,8 @@ pub struct MessageCtx<'a> {
     pub src_ip: &'a str,
     pub src_port: u16,
 
-    pub conn_start_ns: u128,
-    pub conn_prev_msg_ns: u128,
+    pub conn_start_ns: u64,
+    pub conn_prev_msg_ns: u64,
 }
 
 /// Main entry: evaluate all rules, return (Decision, EvaluationRecord)

@@ -5,7 +5,7 @@ use shared::types::base_types::Scope;
 use std::sync::Arc;
 
 pub struct HydratedPortData {
-    pub ruleset: Option<(RuleSetRaw, String)>, // (raw, version)
+    pub ruleset: Option<(RuleSetRaw, String)>,
     pub config: Option<HydratedConfig>,
 }
 
@@ -16,13 +16,13 @@ pub struct HydratedConfig {
     pub enabled_scopes: Vec<Scope>,
 }
 
-//noinspection RsUnwrap
 pub fn hydrate_registry(
     db_path: &str,
     registry: &crate::registry::PortRegistry,
 ) -> anyhow::Result<()> {
     let ports: Vec<u16> = registry.iter().map(|e| e.binding.public).collect();
     let data = hydrate_for_ports(db_path, &ports)?;
+
     for (port, h) in data {
         if let Some(pr) = registry.get(&port) {
             if let Some(cfgp) = h.config {
@@ -46,6 +46,7 @@ pub fn hydrate_registry(
             }
         }
     }
+
     Ok(())
 }
 
@@ -56,6 +57,7 @@ pub fn hydrate_for_ports(
     let mut conn = Connection::open(path)?;
     // ensure tables exist (idempotent)
     init_schema(&conn)?;
+
     let mut out = Vec::new();
     for p in ports {
         let ruleset = load_ruleset(&mut conn, *p)?;
@@ -64,6 +66,7 @@ pub fn hydrate_for_ports(
     }
     Ok(out)
 }
+
 
 fn load_ruleset(conn: &mut Connection, port: u16) -> anyhow::Result<Option<(RuleSetRaw, String)>> {
     let mut stmt = conn.prepare("SELECT version, json FROM port_rulesets WHERE port = ?")?;
@@ -81,7 +84,7 @@ fn load_ruleset(conn: &mut Connection, port: u16) -> anyhow::Result<Option<(Rule
 fn load_config(conn: &mut Connection, port: u16) -> anyhow::Result<Option<HydratedConfig>> {
     let mut stmt = conn.prepare(
         "SELECT name, comment, hex_color, enabled_scopes_json
-         FROM port_configs WHERE port = ?",
+         FROM port_configs WHERE external_port = ?",
     )?;
     let mut rows = stmt.query(params![port as i64])?;
     if let Some(row) = rows.next()? {
@@ -90,6 +93,7 @@ fn load_config(conn: &mut Connection, port: u16) -> anyhow::Result<Option<Hydrat
         let hex_color: Option<String> = row.get(2)?;
         let scopes_json: String = row.get(3)?;
         let scopes: Vec<Scope> = serde_json::from_str(&scopes_json).unwrap_or_default();
+
         Ok(Some(HydratedConfig {
             name,
             comment,

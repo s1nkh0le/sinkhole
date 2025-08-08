@@ -10,13 +10,13 @@ use serde_json::json;
     put,
     path = "/ports/{port}/stats",
     params(
-        ("token" = String, description = "Authentication token"),
-        ("port" = u16, Path, description = "Public port"),
+        ("token" = String, Query,                   description = "Authentication token"),
+        ("port" = u16, Path,                        description = "Public port"),
     ),
     responses(
-        (status = 200, description = "OK"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown port"),
+        (status = 200,                              description = "OK"),
+        (status = 401,                              description = "Unauthorized"),
+        (status = 404,                              description = "Unknown port"),
     ),
     tag = "filter"
 )]

@@ -12,13 +12,17 @@ use tracing::info;
 use tracing::log::warn;
 use utoipa::{IntoParams, ToSchema};
 use shared::api::err::ErrorEnvelope;
-use crate::api::api_records::RecordsQuery;
+use shared::types::routing::filter::db::FilterRequestDeleteQueryPruneRecords;
 
+
+/// /db/health
+/// 
+/// Health check for the database
 #[utoipa::path(
     get,
     path = "/db/health",
     params(
-        ("token" = String, description = "Authentication token"),
+        ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK"),
@@ -27,8 +31,6 @@ use crate::api::api_records::RecordsQuery;
     ),
     tag = "filter"
 )]
-
-
 pub async fn get_db_health(
     OriginalUri(uri): OriginalUri,
     State((_cfg, _registry, db)): State<SharedState>,
@@ -36,17 +38,28 @@ pub async fn get_db_health(
     match db_health(db.path.clone()).await {
         Ok(s) => (StatusCode::OK, Json(json!({"status":"ok", "data": s}))),
         Err(e) => {
-            sink_ecam::record(Severity::Error, Origin::API, format!("[db_health_ep(), GET {}]: server error: {}", uri.path(), e), None, );
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"status":"error","errors":[e.to_string()]})),)
+            sink_ecam::record(Severity::Error, Origin::API, format!("[get_db_health(), GET {}]: server error: {}", uri.path(), e), None);
+
+            ErrorEnvelope::internal("db_query_failure", uri.path())
+                .with_title("DB health query failed")
+                .with_detail(format!("Database health query error: {}", e.to_string()))
+                .into_result()
         }
     }
 }
 
+
+
+
+
+/// /db/stats
+/// 
+/// Returns some database statistics
 #[utoipa::path(
     get,
     path = "/db/stats",
     params(
-        ("token" = String, description = "Authentication token"),
+        ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK"),
@@ -65,24 +78,29 @@ pub async fn get_db_stats(
             sink_ecam::record(
                 Severity::Error,
                 Origin::API,
-                format!("[db_stats_ep(), GET {}]: server error: {}", uri.path(), e),
+                format!("[get_db_stats(), GET {}]: server error: {}", uri.path(), e),
                 None,
             );
 
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"status":"error","errors":[e.to_string()]})),
-            )
+            ErrorEnvelope::internal("db_query_failure", uri.path())
+                .with_title("DB stats query failed")
+                .with_detail(format!("Database stats query error: {}", e.to_string()))
+                .into_result()
         }
     }
 }
 
 
+
+
+/// /db/clear
+/// 
+/// Clears the whole database
 #[utoipa::path(
     delete,
     path = "/db/clear",
     params(
-        ("token" = String, description = "Authentication token"),
+        ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK"),
@@ -106,7 +124,7 @@ pub async fn delete_clear_db(
             sink_ecam::record(
                 Severity::Error,
                 Origin::API,
-                format!("[db_clear_ep(), {}]: server query error: {}", uri.path(), e),
+                format!("[delete_clear_db(), {}]: server query error: {}", uri.path(), e),
                 None,
             );
 
@@ -119,19 +137,17 @@ pub async fn delete_clear_db(
 }
 
 
-#[derive(Deserialize, Debug, ToSchema, IntoParams)]
-pub struct PruneQuery {
-    /// Delete all database records before this timestamp, keep all records with tiemstamp greater than this
-    pub prune_threshold_ts: i64,
-}
 
 
+/// /db/prune/records
+/// 
+/// Removes `EvaluationRecord`s from the database `records` table having a timestamp less than the given parameter `prune_threshold_ts`.
+/// Should be used periodically once records have been transferred out of the filter's database.
 #[utoipa::path(
     delete,
     path = "/db/prune/records",
     params(
-        PruneQuery,
-        ("token" = String, description = "Authentication token"),
+        ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK"),
@@ -142,14 +158,16 @@ pub struct PruneQuery {
 )]
 pub async fn delete_prune_db_records(
     OriginalUri(uri): OriginalUri,
-    Query(q): Query<PruneQuery>,
+    Query(q): Query<FilterRequestDeleteQueryPruneRecords>,
     State((_cfg, _registry, db)): State<SharedState>,
 ) -> (StatusCode, Json<Value>) {
     info!("[delete_prune_db_records(), DELETE {}], pruning db records with record.timestamp_ns < {}", uri.path(), q.prune_threshold_ts);
-
+    
+    let db_path = db.path.clone();
+    let db_since = i64::try_from(q.prune_threshold_ts).unwrap();
     const BATCH_SIZE: usize = 10_000;
-
-    match crate::db::query::prune_records_before(db.path.clone(), q.prune_threshold_ts, BATCH_SIZE).await {
+    
+    match crate::db::query::prune_records_before(db_path, db_since, BATCH_SIZE).await {
         Ok((pr)) => {
             info!("pruned records successfully");
             (StatusCode::OK, Json(serde_json::to_value(pr).unwrap()))

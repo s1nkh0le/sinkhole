@@ -1,5 +1,5 @@
 use crate::db::actor::{DbCmd, init_db};
-use crate::db::hydration::hydrate_registry;
+use crate::db::query_hydration::hydrate_registry;
 use crate::observability::summary::dump_port_state;
 use crate::proxy::run_all_ports;
 use anyhow::{Result, anyhow};

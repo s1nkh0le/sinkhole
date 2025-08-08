@@ -23,7 +23,7 @@ pub async fn get_health(
     get,
     path = "/version",
     params(
-        ("token" = String, description = "Authentication token"),
+        ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK")
@@ -46,7 +46,7 @@ pub async fn get_version(
     get,
     path = "/teapot",
     params(
-        ("token" = String, description = "Authentication token"),
+        ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 401, description = "Unauthorized"),

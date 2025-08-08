@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkEnvelope};
 use crate::state::ControllerState;
+use crate::state::Health::Healthy;
 
 /// Successful health reply
 #[derive(Serialize, ToSchema)]
@@ -44,7 +45,7 @@ pub struct ServiceSummary {
     pub id: String,
     pub url: String,
     pub healthy: bool,
-    pub last_sync_ns: i64,
+    pub last_sync_ns: u64,
     pub ports: Vec<u16>,
 }
 
@@ -59,7 +60,7 @@ impl shared::api::ok::OkData for ServicesOkData {}
 
 
 /// Returns brief summary of the controller's registered services.
-/// This is meant to be a quick and synthethic version of a call to `/state`, which returns more extensive information for both services and ports.
+/// This is meant to be a quick and synthethic version of a call to `/fetch`, which returns more extensive information for both services and ports.
 #[utoipa::path(
     get,
     path = "/services",
@@ -85,7 +86,7 @@ pub async fn get_list_services(
         .map(|(id, svc)| ServiceSummary {
             id: id.clone(),
             url: svc.cfg.base_url.clone(),
-            healthy: svc.metadata.healthy,
+            healthy: svc.metadata.health == Healthy, //FIXME
             last_sync_ns: svc.metadata.last_state_sync_ns,
             ports: svc.ports.keys().copied().collect(),
         })

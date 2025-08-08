@@ -70,7 +70,7 @@ pub struct StatsSnapshot {
 /// Complete record of an evaluation decision for a single message
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct EvaluationRecord {
-    pub timestamp_ns: u128,
+    pub timestamp_ns: u64,
     pub conn_id: u64,
     pub message_seq: u64,
     pub inbound: bool,

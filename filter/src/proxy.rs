@@ -227,7 +227,7 @@ async fn pump<R, W>(
     upstream_port: u16,
     debug: bool,
     port_rt: Arc<PortRuntime>,
-    conn_start_ns: u128,
+    conn_start_ns: u64,
 ) -> Result<()>
 where
     R: AsyncReadExt + Unpin,

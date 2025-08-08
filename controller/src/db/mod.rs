@@ -27,7 +27,7 @@ pub enum Cmd {
 
 // Spawn once at start-up
 pub fn init(path: &str) -> Result<DbHandle> {
-    let (tx, mut rx) = mpsc::channel::<Cmd>(64);
+    let (tx, mut rx) = mpsc::channel::<Cmd>(8_192);
     let path = Arc::new(path.to_string());
 
     let path_clone = path.clone();

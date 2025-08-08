@@ -5,27 +5,36 @@ use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use crate::observability::summary::dump_port_state;
 use crate::rules;
-use crate::rules::{CompiledRuleSet, calc_version_raw_ruleset};
+use crate::rules::{CompiledRuleSet, calc_version_ruleset};
 use axum::Json;
 use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
 use serde_json::json;
 use shared::utils::time::now_ns;
-use std::collections::HashMap;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use tracing::{error, info};
+use utoipa::ToSchema;
+use shared::api::err::ErrorEnvelope;
+use shared::api::ok::{ok, OkEnvelope};
+use shared::types::routing::filter::ruleset::{FilterReplySuccessRuleset, FilterReplySuccessValidationRuleset};
+use shared::types::ruleset_types::RuleSetRaw;
 
+
+/// /ports/{port}/ruleset
+///
+/// Fetches the active ruleset for the given port
 #[utoipa::path(
     get,
     path = "/ports/{port}/ruleset",
     params(
-        ("token" = String, description = "Authentication token"),
-        ("port" = u16, Path, description = "Public port"),
+        ("token" = String, Query,                                   description = "Authentication token"),
+        ("port" = u16, Path,                                        description = "Public port"),
     ),
     responses(
-        (status = 200, description = "OK"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown port"),
+        (status = 200, description = "OK",                          body = OkEnvelope<FilterReplySuccessRuleset>),
+        (status = 401, description = "Unauthorized",                body = ErrorEnvelope),
+        (status = 404, description = "Unknown port",                body = ErrorEnvelope),
     ),
     tag = "filter"
 )]
@@ -36,62 +45,66 @@ pub async fn get_ruleset(
 ) -> (StatusCode, Json<serde_json::Value>) {
     match registry.get(&port) {
         Some(pr) => {
-            let rs_arc = pr.raw_ruleset.load();
-            let version = calc_version_raw_ruleset(&rs_arc).unwrap_or_default();
-            (
-                StatusCode::OK,
-                Json(
-                    json!({"status":"ok", "data":{"version":version, "ruleset": rs_arc.as_ref() }}),
-                ),
-            )
+            let runtime_ruleset_arc = pr.raw_ruleset.load_full();
+            let version_ruleset = calc_version_ruleset(&runtime_ruleset_arc);
+
+            ok(FilterReplySuccessRuleset { ruleset: (*runtime_ruleset_arc).clone(), ver_ruleset: version_ruleset } )
         }
         None => {
             sink_ecam::record(
                 Severity::Warn,
                 Origin::API,
-                format!("[get_ruleset(), GET {}]: port not found", uri.path()),
+                format!("[get_ruleset(), GET {}]: port {} not found", uri.path(), port),
                 None,
             );
 
-            (
-                StatusCode::NOT_FOUND,
-                Json(json!({"status":"error", "errors":["unknown port"]})),
-            )
+            ErrorEnvelope::not_found("sanitization", uri.path())
+                .with_title("Unknown Port")
+                .into_result()
         }
     }
 }
 
 
+/// /ports/{port}/ruleset
+///
+/// Takes a `RuleSetRaw`, validates it, and if everything checks out, applies it to the
 #[utoipa::path(
     put,
     path = "/ports/{port}/ruleset",
     params(
-        ("token" = String, description = "Authentication token"),
-        ("port" = u16, Path, description = "Public port"),
+        ("token" = String, Query,                                   description = "Authentication token"),
+        ("port" = u16, Path,                                        description = "Public port"),
     ),
     responses(
-        (status = 200, description = "OK"),
-        (status = 400, description = "Invalid request"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown port"),
-        (status = 500, description = "Internal server error"),
+        (status = 200, description = "OK",                          body = OkEnvelope<FilterReplySuccessRuleset>),
+        (status = 400, description = "Invalid request",             body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized",                body = ErrorEnvelope),
+        (status = 404, description = "Unknown port",                body = ErrorEnvelope),
+        (status = 500, description = "Internal server error",       body = ErrorEnvelope),
     ),
     tag = "filter"
 )]
 pub async fn put_ruleset(
     OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
-    State((cfg, registry, db)): State<SharedState>,
-    Json(body): Json<rules::RuleSetRaw>,
+    State((_cfg, registry, db)): State<SharedState>,
+    Json(body): Json<RuleSetRaw>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     // locate port
     let pr = match registry.get(&port) {
         Some(p) => p,
         None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"status":"error","errors":["unknown port"]})),
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!("[get_ruleset(), GET {}]: port {} not found", uri.path(), port),
+                None,
             );
+
+            return ErrorEnvelope::not_found("sanitization", uri.path())
+                    .with_title("Unknown Port")
+                    .into_result()
         }
     };
 
@@ -110,31 +123,15 @@ pub async fn put_ruleset(
             None,
         );
 
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"status":"error","errors": errs })),
-        );
+        return ErrorEnvelope::bad_request("ruleset_validation_error", uri.path())
+            .with_title("Ruleset validation failed")
+            .with_detail(format!("The given ruleset failed verification with the following errors: {}", errs.join(", ")))
+            .into_result()
     }
 
     // version + compile
-    let version = match calc_version_raw_ruleset(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            sink_ecam::record(
-                Severity::Warn,
-                Origin::API,
-                format!(
-                    "[put_ruleset(), PUT {}]: rejecting rules | version calc failed, errors={e}", uri.path()
-                ),
-                None,
-            );
-
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"status":"error","errors":[e.to_string()]})),
-            );
-        }
-    };
+    let ver_ruleset = calc_version_ruleset(&body);
+    let validated_ruleset_raw_json = serde_json::to_string(&body).unwrap();
 
     let compiled: CompiledRuleSet = match rules::compile::compile_ruleset(&body) {
         Ok(c) => c,
@@ -148,43 +145,49 @@ pub async fn put_ruleset(
                 None,
             );
 
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"status":"error","errors":[e.to_string()]})),
-            );
+            return ErrorEnvelope::bad_request("ruleset_validation_error", uri.path())
+                .with_title("Ruleset validation failed")
+                .with_detail(format!("The given ruleset failed verification with the following errors: {}", e.to_string()))
+                .into_result()
         }
     };
+
 
     // Print ruleset log
     info!(
         port,
-        version,
-        markers = compiled.markers.len(),
-        filters = compiled.filters.len(),
+        ver_ruleset,
+        markers = compiled.clone().markers.len(),
+        filters = compiled.clone().filters.len(),
         "ruleset accepted"
     );
 
-    let raw_str = serde_json::to_string(&body).unwrap();
-    let version_db = version.clone();
-
+    // Store data to port runtime
     pr.raw_ruleset.store(Arc::new(body));
     pr.compiled.store(Arc::new(compiled));
 
-    // Log new port state
+    // Log new port fetch
     dump_port_state(&*pr);
 
+    // Save config to db
     let _ = db.tx.try_send(DbCmd::SaveRuleset {
         port,
-        version: version_db,
-        json: raw_str,
+        version: ver_ruleset.clone(),
+        json: validated_ruleset_raw_json,
         ts_ns: now_ns() as i64,
     });
 
-    (
-        StatusCode::OK,
-        Json(json!({"status":"ok","data":{"version":version}})),
-    )
+    ok(FilterReplySuccessRuleset {
+        ruleset: pr.to_rulesetraw(),
+        ver_ruleset,
+    })
 }
+
+
+
+
+
+
 
 
 
@@ -192,13 +195,13 @@ pub async fn put_ruleset(
     put,
     path = "/ports/{port}/ruleset/validate",
     params(
-        ("token" = String, description = "Authentication token"),
-        ("port" = u16, Path, description = "Public port"),
+        ("token" = String, Query,                               description = "Authentication token"),
+        ("port" = u16, Path,                                    description = "Public port"),
     ),
     responses(
-        (status = 200, description = "OK"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown port"),
+        (status = 200, description = "OK",                      body = OkEnvelope<FilterReplySuccessValidationRuleset>),
+        (status = 401, description = "Unauthorized",            body = ErrorEnvelope),
+        (status = 404, description = "Unknown port",            body = ErrorEnvelope),
     ),
     tag = "filter"
 )]
@@ -211,10 +214,9 @@ pub async fn put_ruleset_validate(
     let pr = match registry.get(&port) {
         Some(p) => p,
         None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"status":"error","errors":["unknown port"]})),
-            );
+            return ErrorEnvelope::not_found("sanitization", uri.path())
+                    .with_title("Unknown Port")
+                    .into_result()
         }
     };
 
@@ -233,39 +235,15 @@ pub async fn put_ruleset_validate(
             None,
         );
 
-        return (
-            StatusCode::OK,
-            Json(json!({
-                "status": "ok",
-                "validated": false,
-                "errors": errs,
-            }))
-        );
+        return ok(FilterReplySuccessValidationRuleset {
+            ruleset: pr.to_rulesetraw(),
+            validated: false,
+            validation_errors: Some(errs.join(", "))
+        })
     }
 
     // version + compile
-    let version = match calc_version_raw_ruleset(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            sink_ecam::record(
-                Severity::Warn,
-                Origin::API,
-                format!(
-                    "[validate_ruleset(), PUT {}]:  ruleset validation failed, errors={e}",  uri.path()
-                ),
-                None,
-            );
-
-            return (
-                StatusCode::OK,
-                Json(json!({
-                    "status": "ok",
-                    "validated": false,
-                    "errors": errs,
-                }))
-            );
-        }
-    };
+    let version_ruleset = calc_version_ruleset(&body);
 
     let compiled: CompiledRuleSet = match rules::compile::compile_ruleset(&body) {
         Ok(c) => c,
@@ -279,31 +257,25 @@ pub async fn put_ruleset_validate(
                 None,
             );
 
-            return (
-                StatusCode::OK,
-                Json(json!({
-                    "status": "ok",
-                    "validated": false,
-                    "errors": errs,
-                }))
-            );
+            return ok(FilterReplySuccessValidationRuleset {
+                ruleset: pr.to_rulesetraw(),
+                validated: false,
+                validation_errors: Some(errs.join(", "))
+            })
         }
     };
 
     info!(
         port,
-        version,
+        version_ruleset,
         markers = compiled.markers.len(),
         filters = compiled.filters.len(),
-        "ruleset validated"
+        "ruleset validated (from /validate)"
     );
 
-    (
-        StatusCode::OK,
-        Json(json!({
-            "status": "ok",
-            "validated": true,
-            "validated_version": version
-        })),
-    )
+    ok(FilterReplySuccessValidationRuleset {
+        ruleset: pr.to_rulesetraw(),
+        validated: true,
+        validation_errors: None
+    })
 }

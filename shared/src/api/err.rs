@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[derive(utoipa::ToSchema)]
 #[derive(Serialize, Clone)]
 pub struct ErrorEnvelope {
     /// The status string; always "error"
@@ -99,7 +99,7 @@ impl ErrorEnvelope {
         self.title = title.into();
         self
     }
-
+    
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
         self

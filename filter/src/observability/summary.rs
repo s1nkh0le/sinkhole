@@ -4,7 +4,7 @@ use shared::types::ruleset_types::{MatcherDef, RuleSetRaw};
 use std::sync::Arc;
 use tracing::debug;
 
-/// Emit a concise snapshot of port state at DEBUG level.
+/// Emit a concise snapshot of port fetch at DEBUG level.
 pub fn dump_port_state(rt: &Arc<PortRuntime>) {
     // ---- guards ---------------------------------------------------------
     let compiled_guard = rt.compiled.load();

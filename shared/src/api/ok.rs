@@ -10,8 +10,8 @@ pub mod sealed {
 }
 
 #[derive(Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[cfg_attr(feature = "openapi", schema(bound = "T: serde::Serialize + utoipa::ToSchema"))]
+#[derive(utoipa::ToSchema)]
+#[schema(bound = "T: serde::Serialize + utoipa::ToSchema")]
 pub struct OkEnvelope<T: OkData> {
     pub status: &'static str,
     pub data: T,
