@@ -12,6 +12,7 @@ use shared::api::ok::{ok, sealed, OkData, OkEnvelope};
 use shared::types::ruleset_types::PortInfo;
 use shared::utils::version::calc_version_combined_copyover;
 use utoipa::ToSchema;
+use shared::types::routing::filter::ports::FilterCtrlRequestPutBodyConfigUpdate;
 
 /// Successful port listing data
 #[derive(Serialize, ToSchema)]
@@ -29,14 +30,14 @@ impl OkData for CtrlReplyPortListOkData {}
     get,
     path = "/services/{service_id}/ports",
     params(
-        ("ctrl_token" = String, description = "Authentication token"),
-        ("service_id" = String, Path, description = "Service id")
+        ("ctrl_token" = String, Query,                                          description = "Authentication token"),
+        ("service_id" = String, Path,                                           description = "Service id")
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyPortListOkData>),
+        (status = 200, description = "OK",                                      body = OkEnvelope<CtrlReplyPortListOkData>),
         (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown service/port or not cached", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 404, description = "Unknown service/port or not cached",      body = ErrorEnvelope),
+        (status = 500, description = "Server error",                            body = ErrorEnvelope),
     ),
     tags = ["controller", "ports"]
 )]
@@ -87,21 +88,26 @@ struct CtrlReplyPortInfo {
 impl sealed::Sealed for CtrlReplyPortInfo {}
 impl OkData for CtrlReplyPortInfo {}
 
+
+
+/// /services/{service_id}/ports/{port}/config
+///
+/// Returns the `PortInfo` and its version for the given service id and port
 #[utoipa::path(
     get,
     path = "/services/{service_id}/ports/{port}/config",
     params(
-        ("ctrl_token" = String,         description = "Authentication token"),
-        ("service_id" = String, Path,   description = "Service id"),
-        ("port"       = u16,    Path,   description = "Port number")
+        ("ctrl_token" = String, Query,                                          description = "Authentication token"),
+        ("service_id" = String, Path,                                           description = "Service id"),
+        ("port"       = u16,    Path,                                           description = "Port number")
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyPortInfo>),
-        (status = 400, description = "Invalid request", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
-        (status = 404, description = "Unknown service/port", body = ErrorEnvelope),
-        (status = 502, description = "Upstream filter error", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 200, description = "OK",                                      body = OkEnvelope<CtrlReplyPortInfo>),
+        (status = 400, description = "Invalid request",                         body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown service/port",                    body = ErrorEnvelope),
+        (status = 502, description = "Upstream filter error",                   body = ErrorEnvelope),
+        (status = 500, description = "Server error",                            body = ErrorEnvelope),
     ),
     tags = ["controller", "ports"]
 )]
@@ -153,21 +159,24 @@ pub async fn get_port_config(
 
 
 
+/// /services/{service_id}/ports/{port}/config
+///
+/// Modifies the `PortInfo` for the given service id and port on the filter, and updates the controller state accordingly
 #[utoipa::path(
     put,
     path = "/services/{service_id}/ports/{port}/config",
     params(
-        ("ctrl_token" = String,         description = "Authentication token"),
-        ("service_id" = String, Path,   description = "Service id"),
-        ("port"       = u16,    Path,   description = "Port number")
+        ("ctrl_token" = String, Query,                                          description = "Authentication token"),
+        ("service_id" = String, Path,                                           description = "Service id"),
+        ("port"       = u16,    Path,                                           description = "Port number")
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyPortInfo>),
-        (status = 400, description = "Invalid request", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
-        (status = 404, description = "Unknown service/port", body = ErrorEnvelope),
-        (status = 502, description = "Upstream filter error", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 200, description = "OK",                                      body = OkEnvelope<CtrlReplyPortInfo>),
+        (status = 400, description = "Invalid request",                         body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Unknown service/port",                    body = ErrorEnvelope),
+        (status = 502, description = "Upstream filter error",                   body = ErrorEnvelope),
+        (status = 500, description = "Server error",                            body = ErrorEnvelope),
     ),
     tags = ["controller", "ports"]
 )]
@@ -175,7 +184,7 @@ pub async fn put_port_config(
     OriginalUri(uri): OriginalUri,
     Path((service_id, port)): Path<(String, u16)>,
     State(state): State<ControllerState>,
-    Json(body): Json<Value>,
+    Json(body): Json<FilterCtrlRequestPutBodyConfigUpdate>,
 ) -> (StatusCode, Json<Value>) {
     // ── 1) Validate service & port existence (cached or not) ────────────
     if !ensure_service_exists(&state, &service_id) {

@@ -1,5 +1,6 @@
 use crate::api::fetchers::{put_ruleset_filter, validate_ruleset_filter};
 use crate::api::util::{ensure_port_exists, ensure_service_exists, ensure_snapshots};
+use crate::fetch::error::CtrlErr;
 use crate::state::ControllerState;
 use axum::{
     extract::{OriginalUri, Path, State},
@@ -9,7 +10,7 @@ use axum::{
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use shared::api::err::ErrorEnvelope;
+use shared::api::err::{err, ErrorEnvelope};
 use shared::api::ok::{ok, OkEnvelope};
 use shared::types::ruleset_types::RuleSetRaw;
 use shared::utils::version::calc_version_combined_copyover;
@@ -25,21 +26,26 @@ impl shared::api::ok::sealed::Sealed for CtrlReplyRulesetOkData {}
 impl shared::api::ok::OkData for CtrlReplyRulesetOkData {}
 
 
+
+
+/// /services/{service_id}/ports/{port}/ruleset
+///
+/// Returns the `RuleSetRaw` and its version for the given service id and port
 #[utoipa::path(
     get,
     path = "/services/{service_id}/ports/{port}/ruleset",
     params(
-        ("ctrl_token" = String, description = "Authentication token"),
-        ("service_id" = String, Path, description = "Service identifier"),
-        ("port" = u16, Path, description = "Public port"),
+        ("ctrl_token" = String, Query,                                                  description = "Authentication token"),
+        ("service_id" = String, Path,                                                   description = "Service identifier"),
+        ("port" = u16, Path,                                                            description = "Public port"),
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyRulesetOkData>),
-        (status = 400, description = "Invalid request", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
-        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
+        (status = 200, description = "OK",                                              body = OkEnvelope<CtrlReplyRulesetOkData>),
+        (status = 400, description = "Invalid request",                                 body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized",                                    body = ErrorEnvelope),
+        (status = 404, description = "Unknown service or port",                         body = ErrorEnvelope),
+        (status = 500, description = "Server error",                                    body = ErrorEnvelope),
+        (status = 502, description = "Filter unreachable or returned error",            body = ErrorEnvelope)
     ),
     tags = ["controller", "ruleset"]
 )]
@@ -92,32 +98,53 @@ pub async fn get_ruleset(
 
 
 
-
-#[derive(Serialize, Deserialize, ToSchema)]
+/// Successful reply with validated filter and version
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RulesetValidationOkData {
     pub validated: bool,
     pub validated_version: Option<String>
 }
-impl shared::api::ok::sealed::Sealed for RulesetValidationOkData {}
-impl shared::api::ok::OkData for RulesetValidationOkData {}
+impl shared::api::ok::sealed::Sealed for CtrlReplyRulesetValidationErrorEnvelope {}
+impl shared::api::ok::OkData for CtrlReplyRulesetValidationErrorEnvelope {}
 
 
+
+/// Failed reply envelope for invalid request
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CtrlReplyRulesetValidationErrorEnvelope {
+    /// Always "invalid"
+    pub status: String,
+    /// Always false
+    pub validated: bool,
+    /// Vlidation error logs
+    pub details: String,
+}
+
+
+
+/// /services/{service_id}/ports/{port}/ruleset
+///
+/// Modifies the `RuleSetRaw` for the given service id and port on the filter, and updates the controller state accordingly.
+///
+/// The return types depend on the validity of the submitted `RuleSetRaw`:
+/// - Successful rulesets returns `OkEnvelope<RulesetValidationOkData>`;
+/// - Invalid rulesets return `CtrlReplyRulesetValidationErrorEnvelope`.
 #[utoipa::path(
     put,
     path = "/services/{service_id}/ports/{port}/ruleset",
     params(
-        ("ctrl_token" = String, description = "Authentication token"),
-        ("service_id" = String, Path, description = "Service identifier"),
-        ("port" = u16, Path, description = "Public port"),
+        ("ctrl_token" = String, Query,                                              description = "Authentication token"),
+        ("service_id" = String, Path,                                               description = "Service identifier"),
+        ("port" = u16, Path,                                                        description = "Public port"),
     ),
     request_body = RuleSetRaw,
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyRulesetOkData>),
-        (status = 400, description = "Filter rejected ruleset", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
-        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
+        (status = 200, description = "OK",                                          body = OkEnvelope<CtrlReplyRulesetOkData>),
+        (status = 400, description = "Filter rejected ruleset",                     body = CtrlReplyRulesetValidationErrorEnvelope),
+        (status = 401, description = "Unauthorized",                                body = ErrorEnvelope),
+        (status = 404, description = "Unknown service or port",                     body = ErrorEnvelope),
+        (status = 500, description = "Server error",                                body = ErrorEnvelope),
+        (status = 502, description = "Filter unreachable or returned error",        body = ErrorEnvelope)
     ),
     tags = ["controller", "ruleset"]
 )]
@@ -160,12 +187,53 @@ pub async fn put_ruleset(
 
     // ── 3) Relay PUT to filter ------------------------------------------
     let (ruleset, ver_ruleset) = match put_ruleset_filter(&Client::new(), &base_url, &token, port, &body, ).await {
-        Ok(t) => t,
-        Err(err) => {
-            return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-                .with_title("Filter unreachable")
-                .with_detail(err.to_string())
-                .into_result();
+        Ok(t) => {
+            t
+        },
+        Err(ctrl_error) => {
+            return match (ctrl_error) {
+                CtrlErr::Timeout => {
+                    ErrorEnvelope::bad_gateway("filter_timeout", uri.path())
+                        .with_title("Filter timeout")
+                        .with_detail("request to filter timed out")
+                        .into_result()
+                }
+                CtrlErr::Network(e) => {
+                    ErrorEnvelope::bad_gateway("filter_network_error", uri.path())
+                        .with_title("Filter unreachable")
+                        .with_detail(e.to_string())
+                        .into_result()
+                }
+                CtrlErr::Http(code) => {
+                    ErrorEnvelope::bad_gateway("filter_http_error", uri.path())
+                        .with_title("Filter returned error")
+                        .with_detail(format!("filter responded with HTTP {}", code))
+                        .into_result()
+                }
+                CtrlErr::Auth => {
+                    ErrorEnvelope::unauthorized("filter_auth", uri.path())
+                        .with_title("Unauthorized towards filter")
+                        .with_detail("filter returned 401")
+                        .into_result()
+                }
+                CtrlErr::Json(e) => {
+                    ErrorEnvelope::bad_gateway("bad_filter_payload", uri.path())
+                        .with_title("Invalid filter JSON")
+                        .with_detail(e.to_string())
+                        .into_result()
+                }
+                CtrlErr::CustomEnvelope(env) => {
+                    if env.error.unwrap() == "ruleset_validation_error" {
+                        err(StatusCode::BAD_REQUEST, CtrlReplyRulesetValidationErrorEnvelope {
+                            status: "invalid".to_string(),
+                            validated: false,
+                            details: env.detail.unwrap()
+                        })
+                    } else {
+                        ErrorEnvelope::bad_gateway("filter_unknown_error", uri.path()).into_result()
+                    }
+                }
+            }
         }
     };
 
@@ -193,22 +261,30 @@ pub async fn put_ruleset(
 }
 
 
+/// /services/{service_id}/ports/{port}/ruleset/validate
+///
+/// Accepts a `RuleSetRaw` for the given service id and port on the filter, forwards it to the filter for validation,
+/// and returns the validation result
+///
+/// The return types depend on the validity of the submitted `RuleSetRaw`:
+/// - Successful rulesets returns `OkEnvelope<CtrlReplyRulesetOkData>`;
+/// - Invalid rulesets return `ErrorEnvelope`.
 #[utoipa::path(
     put,
     path = "/services/{service_id}/ports/{port}/ruleset/validate",
     params(
-        ("ctrl_token" = String, description = "Authentication token"),
-        ("service_id" = String, Path, description = "Service identifier"),
-        ("port" = u16, Path, description = "Public port"),
+        ("ctrl_token" = String, Query,                                                  description = "Authentication token"),
+        ("service_id" = String, Path,                                                   description = "Service identifier"),
+        ("port" = u16, Path,                                                            description = "Public port"),
     ),
     request_body = RuleSetRaw,
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<CtrlReplyRulesetOkData>),
-        (status = 400, description = "Filter rejected ruleset", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Unknown service or port", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
-        (status = 502, description = "Filter unreachable or returned error", body = ErrorEnvelope)
+        (status = 200, description = "OK",                                              body = OkEnvelope<CtrlReplyRulesetOkData>),
+        (status = 400, description = "Filter rejected ruleset",                         body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized",                                    body = ErrorEnvelope),
+        (status = 404, description = "Unknown service or port",                         body = ErrorEnvelope),
+        (status = 500, description = "Server error",                                    body = ErrorEnvelope),
+        (status = 502, description = "Filter unreachable or returned error",            body = ErrorEnvelope)
     ),
     tags = ["controller", "ruleset"]
 )]
@@ -244,11 +320,10 @@ pub async fn put_validate_ruleset(
     // ── 3) Relay validate call to filter --------------------------------
     let (validated, _ruleset, maybe_err) = match validate_ruleset_filter(&Client::new(), &base_url, &token, port, &body, ).await {
         Ok(t) => t,
-        Err(err) => {
-            return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())
-                .with_title("Filter unreachable")
-                .with_detail(err.to_string())
-                .into_result();
+        Err(ctrl_error) => {
+            return ErrorEnvelope::bad_gateway("filter_unknown_error", uri.path())
+                .with_detail(format!("error={}", ctrl_error))
+                .into_result()
         }
     };
 

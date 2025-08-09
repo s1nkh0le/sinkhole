@@ -77,7 +77,7 @@ pub fn build_router(state: ControllerState) -> Router {
         // global fetch
         .route("/auth/ping", get(get_health))
         .route("/services", get(get_list_services))
-        .route("/fetch", get(get_state))
+        .route("/state", get(get_state))
 
         // ecam
         .route("/ecam", get(get_aggregated_ecam))

@@ -1,14 +1,15 @@
-use parking_lot::RwLock;
-use std::collections::HashMap;
-use std::sync::Arc;
-use rand::{rng, Rng};
-use serde::Serialize;
 use crate::config::{ControllerCfg, ServiceCfg};
 use crate::db::boot::read_boot_cursors;
 use crate::db::DbHandle;
+use parking_lot::RwLock;
+use rand::{rng, Rng};
+use serde::{Deserialize, Serialize};
 use shared::types::snapshot_types::PortSnapshot;
+use std::collections::HashMap;
+use std::sync::Arc;
+use utoipa::ToSchema;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Port {
     /// Latest snapshot fetched from the filter (`/fetch`).
     pub snap: Option<PortSnapshot>,
@@ -17,7 +18,7 @@ pub struct Port {
     pub cursors: PortCursors,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortCursors {
     pub next_records_since: u64,
 }
@@ -26,12 +27,14 @@ impl Port {
     pub fn new() -> Self {
         Self {
             snap: None,
-            cursors: PortCursors { next_records_since: 0 },
+            cursors: PortCursors {
+                next_records_since: 0,
+            },
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Service {
     pub cfg: ServiceCfg,
     pub ports: HashMap<u16, Port>,
@@ -39,7 +42,7 @@ pub struct Service {
     pub metadata: ServiceMetadata,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ServiceCursors {
     /// Global ECAM cursor (since last pulled).
     pub next_ecam_since: u64,
@@ -51,11 +54,12 @@ impl Service {
     /// – Creates new Port entries if needed
     /// – Updates existing ones if `ver_combined` changed
     /// – Removes stale ports that disappeared from the filter
-    pub fn merge_snapshots(&mut self,
-                           snaps: Vec<PortSnapshot>,
-                           boot_logs_map: &mut HashMap<(String,u16),u64>,
-                           svc_id: &str)
-    {
+    pub fn merge_snapshots(
+        &mut self,
+        snaps: Vec<PortSnapshot>,
+        boot_logs_map: &mut HashMap<(String, u16), u64>,
+        svc_id: &str,
+    ) {
         let mut seen = std::collections::HashSet::new();
 
         for snap in snaps {
@@ -85,13 +89,8 @@ impl Service {
     }
 }
 
-
-
-
-
-
 /// Health status of one filter instance
-#[derive(Debug, Clone, Copy, Serialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, ToSchema)]
 pub enum Health {
     Healthy,
     Unreachable {
@@ -122,11 +121,11 @@ impl Health {
     /// Exponential back-off with ±10 % jitter.
     pub fn record_failure_backoff(now_ns: u64, prev: Health) -> Self {
         fn next_backoff_ns(failures: u32) -> u64 {
-            let secs = 2u64.saturating_pow(failures.min(8));       // 1,2,4, ... 256 s
+            let secs = 2u64.saturating_pow(failures.min(8)); // 1,2,4, ... 256 s
             secs * 1_000_000_000
         }
         fn jitter(ns: u64) -> u64 {
-            let delta = (ns as f64 * 0.10) as u64;                 // ±10 %
+            let delta = (ns as f64 * 0.10) as u64; // ±10 %
             let mut rng = rng(); // pre-initialized rng
             let offset = rng.random_range(0..=delta);
             ns - delta / 2 + offset
@@ -148,13 +147,14 @@ impl Health {
     pub fn can_poll(&self, now_ns: u64) -> bool {
         match self {
             Health::Healthy => true,
-            Health::Unreachable { backoff_until_ns, .. } => now_ns >= *backoff_until_ns,
+            Health::Unreachable {
+                backoff_until_ns, ..
+            } => now_ns >= *backoff_until_ns,
         }
     }
 }
 
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ServiceMetadata {
     pub health: Health,
     pub last_state_sync_ns: u64,
@@ -189,7 +189,7 @@ impl ControllerState {
                     cfg: svc,
                     ports: HashMap::new(),
                     service_cursors: ServiceCursors {
-                        next_ecam_since: boot_ecam_since
+                        next_ecam_since: boot_ecam_since,
                     },
                     metadata: ServiceMetadata {
                         last_state_sync_ns: 0,
@@ -198,7 +198,7 @@ impl ControllerState {
                             backoff_until_ns: 0,
                         },
                         last_error: None,
-                    }
+                    },
                 },
             );
         }

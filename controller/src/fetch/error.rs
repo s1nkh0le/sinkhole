@@ -1,3 +1,5 @@
+use shared::api::err::ErrorEnvelope;
+
 #[derive(Debug)]
 pub enum CtrlErr {
     Timeout,
@@ -5,6 +7,7 @@ pub enum CtrlErr {
     Http(u16),
     Auth,
     Json(anyhow::Error),
+    CustomEnvelope(ErrorEnvelope),
 }
 
 impl core::fmt::Display for CtrlErr {
@@ -16,6 +19,7 @@ impl core::fmt::Display for CtrlErr {
             Http(c) => write!(f, "HTTP {}", c),
             Auth => write!(f, "unauthorized"),
             Json(e) => write!(f, "decode error: {}", e),
+            CustomEnvelope(env) => write!(f, "custom error: {}", env),
         }
     }
 }

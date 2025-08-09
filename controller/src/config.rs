@@ -1,9 +1,10 @@
 use anyhow::{anyhow, bail, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use shared::utils::hashes::sha256_hex;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::time::Duration;
+use tracing::{warn, info};
 
 /// Per-controller configuration (global).
 #[derive(Debug, Clone)]
@@ -15,15 +16,16 @@ pub struct ControllerCfg {
     pub db_path: String,
     /// Background pull interval for logs/ecam.
     pub pull_interval: Duration,
-
-    pub sync_interval_secs: u64, // how often we refresh ports/config/ruleset
-    pub sync_concurrency: usize, // max in-flight port fetches per service
-
+    /// how often we refresh ports/config/ruleset
+    pub sync_interval_secs: u64,
+    /// max in-flight port fetches per service
+    pub sync_concurrency: usize,
+    /// control token hash
     pub ctrl_token_hash: Option<String>,
 }
 
 /// One upstream filter "service" the controller talks to.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceCfg {
     /// Stable identifier (must be unique). Used in API paths and DB keys.
     pub id: String,
@@ -43,62 +45,77 @@ pub struct Config {
 }
 
 impl Config {
-    /// Convenience: list of service IDs.
     pub fn service_ids(&self) -> Vec<String> {
         self.services.iter().map(|s| s.id.clone()).collect()
     }
 }
 
-pub fn load() -> Result<Config> {
-    // ── Controller (globals) ───────────────────────────────────────────────
-    let debug: bool = std::env::var("CTRL_DEBUG")
-        .ok()
-        .and_then(|v| Some(v.parse::<bool>().unwrap_or(false)))
-        .unwrap_or(false);
-    
-    let bind_str = std::env::var("CTRL_BIND")
-        .or_else(|_| std::env::var("CONTROLLER_BIND"))
-        .unwrap_or_else(|_| "0.0.0.0:7000".to_string());
+const ENV_PREFIX: &str = "SINKHOLE_CTRL_";
 
+#[derive(Debug, Deserialize)]
+struct RawCtrl {
+    /// SINKHOLE_CTRL_DEBUG (bool)
+    #[serde(default)]
+    debug: bool,
+
+    /// SINKHOLE_CTRL_BIND (e.g. "0.0.0.0:7000")
+    #[serde(default)]
+    bind: Option<String>,
+
+    /// SINKHOLE_CTRL_DB_PATH (e.g. "ctrl.db")
+    #[serde(default)]
+    db_path: Option<String>,
+
+    /// SINKHOLE_CTRL_PULL_INTERVAL_SECS (u64)
+    #[serde(default)]
+    pull_interval_secs: Option<u64>,
+
+    /// SINKHOLE_CTRL_SYNC_INTERVAL_SECS (u64)
+    #[serde(default)]
+    sync_interval_secs: Option<u64>,
+
+    /// SINKHOLE_CTRL_SYNC_CONCURRENCY (usize)
+    #[serde(default)]
+    sync_concurrency: Option<usize>,
+
+    /// SINKHOLE_CTRL_API_TOKEN_HASH (sha256 hex) – takes precedence
+    #[serde(default)]
+    api_token_hash: Option<String>,
+
+    /// SINKHOLE_CTRL_API_TOKEN (plain) – hashed if hash not provided
+    #[serde(default)]
+    api_token: Option<String>,
+}
+
+pub fn load() -> Result<Config> {
+    // 1) Parse globals with envy
+    let raw: RawCtrl = envy::prefixed(ENV_PREFIX)
+        .from_env()
+        .context("Failed to parse controller environment variables")?;
+
+    // 2) Normalize globals
+    let bind_str = raw.bind.unwrap_or_else(|| "0.0.0.0:7000".to_string());
     let bind: SocketAddr = bind_str
         .parse()
-        .with_context(|| format!("invalid CTRL_BIND/CONTROLLER_BIND: '{bind_str}'"))?;
+        .with_context(|| format!("invalid {}BIND='{}'", ENV_PREFIX, bind_str))?;
 
-    let db_path = std::env::var("CTRL_DB_PATH").unwrap_or_else(|_| "ctrl.db".to_string());
+    let db_path = raw.db_path.unwrap_or_else(|| "ctrl.db".to_string());
+    let pull_interval = Duration::from_secs(raw.pull_interval_secs.unwrap_or(2));
+    let sync_interval_secs = raw.sync_interval_secs.unwrap_or(15);
+    let sync_concurrency = raw.sync_concurrency.unwrap_or(4);
 
-    let pull_secs = std::env::var("CTRL_PULL_INTERVAL_SECS")
-        .or_else(|_| std::env::var("PULL_INTERVAL_SECS"))
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(2);
-    let pull_interval = Duration::from_secs(pull_secs);
-
-    // NEW: env for sync task
-    let sync_interval_secs = std::env::var("SYNC_INTERVAL_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(15);
-
-    let sync_concurrency = std::env::var("SYNC_CONCURRENCY")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(4);
-
-    let ctrl_token_hash = match (
-        std::env::var("CTRL_API_TOKEN_HASH").ok(),
-        std::env::var("CTRL_API_TOKEN").ok(),
-    ) {
+    let ctrl_token_hash = match (raw.api_token_hash, raw.api_token) {
         (Some(h), _) => Some(h),
         (None, Some(tok)) => Some(sha256_hex(tok.as_bytes())),
         (None, None) => None,
     };
 
     if ctrl_token_hash.is_none() {
-        tracing::warn!("controller auth is DISABLED (no CTRL_API_TOKEN[_HASH] set)");
+        warn!("controller auth is DISABLED ({}API_TOKEN[_HASH] not set)", ENV_PREFIX);
     }
 
     let controller = ControllerCfg {
-        debug,
+        debug: raw.debug,
         bind,
         db_path,
         pull_interval,
@@ -107,77 +124,86 @@ pub fn load() -> Result<Config> {
         ctrl_token_hash,
     };
 
-    // ── Services (upstreams) ───────────────────────────────────────────────
-    // Preferred: SERVICE_{N}_URL / SERVICE_{N}_TOKEN / SERVICE_{N}_ID / SERVICE_{N}_NAME
-    // Legacy fallback: FILTER_{N}_URL / FILTER_{N}_TOKEN (warn).
+    // 3) Parse services (supports two patterns)
     let services = load_services_from_env()?;
-
     if services.is_empty() {
-        bail!("no services found: set SERVICE_0_URL and SERVICE_0_TOKEN (or legacy FILTER_0_URL/TOKEN)");
+        bail!(
+            "no services found: set {}SERVICE_0_URL and {}SERVICE_0_TOKEN \
+             or use {}SERVICES=\"id1,id2\" + {}SERVICE_id_URL/TOKEN",
+            ENV_PREFIX, ENV_PREFIX, ENV_PREFIX, ENV_PREFIX
+        );
     }
 
-    // Validate uniqueness of IDs
-    let mut seen = HashSet::new();
-    for s in &services {
-        if s.id.trim().is_empty() {
-            bail!(
-                "service id must not be empty (service with base_url={})",
-                s.base_url
-            );
-        }
-        if !seen.insert(s.id.clone()) {
-            bail!("duplicate service id '{}'", s.id);
-        }
-        if s.token.trim().is_empty() {
-            bail!("empty token for service '{}'", s.id);
-        }
-        if !s.base_url.starts_with("http://") && !s.base_url.starts_with("https://") {
-            bail!(
-                "service '{}' base_url must start with http:// or https:// (got '{}')",
-                s.id,
-                s.base_url
-            );
-        }
-    }
+    // 4) Validate services
+    validate_services(&services)?;
 
-    Ok(Config {
-        controller,
-        services,
-    })
+    info!(
+        services = services.len(),
+        bind = %controller.bind,
+        "controller config loaded"
+    );
+
+    Ok(Config { controller, services })
 }
 
-// Scan SERVICE_{N}_* first; if none found, scan legacy FILTER_{N}_* (warn).
+// ---------------------------------------------------------------------
+// Services parsing
+// ---------------------------------------------------------------------
+
 fn load_services_from_env() -> Result<Vec<ServiceCfg>> {
-    let services = scan_indexed_services("SERVICE")?;
-    Ok(services)
+    // Prefer named list if present, otherwise fall back to indexed.
+    if let Some(list) = std::env::var_os(format!("{ENV_PREFIX}SERVICES")) {
+        return load_named_services(list.to_string_lossy().as_ref());
+    }
+    load_indexed_services()
 }
 
-fn scan_indexed_services(prefix: &str) -> Result<Vec<ServiceCfg>> {
+/// Pattern A: SINKHOLE_CTRL_SERVICES="edge,api"
+/// Then each:
+///   SINKHOLE_CTRL_SERVICE_edge_URL
+///   SINKHOLE_CTRL_SERVICE_edge_TOKEN
+///   SINKHOLE_CTRL_SERVICE_edge_NAME (optional)
+fn load_named_services(list: &str) -> Result<Vec<ServiceCfg>> {
     let mut out = Vec::new();
+    for raw_id in list.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        let url_key   = format!("{ENV_PREFIX}SERVICE_{}_URL", raw_id);
+        let token_key = format!("{ENV_PREFIX}SERVICE_{}_TOKEN", raw_id);
+        let name_key  = format!("{ENV_PREFIX}SERVICE_{}_NAME", raw_id);
 
-    // Two patterns supported:
-    //  A) Indexed:    {PREFIX}_{N}_URL, _TOKEN, optional _ID, _NAME
-    //  B) Named list: {PREFIX}S="foo,bar"; then {PREFIX}_foo_URL/TOKEN, {PREFIX}_bar_URL/TOKEN,...
-    //
-    // We implement (A) now; (B) can be added later if needed.
+        let url = std::env::var(&url_key).with_context(|| format!("missing {}", url_key))?;
+        let token = std::env::var(&token_key).with_context(|| format!("missing {}", token_key))?;
+        let name = std::env::var(&name_key).ok();
 
+        out.push(ServiceCfg {
+            id: raw_id.to_string(),
+            base_url: normalize_base_url(&url),
+            token,
+            name,
+        });
+    }
+    Ok(out)
+}
+
+/// Pattern B: Indexed
+///   SINKHOLE_CTRL_SERVICE_0_URL
+///   SINKHOLE_CTRL_SERVICE_0_TOKEN
+///   SINKHOLE_CTRL_SERVICE_0_ID (optional, default "svc0")
+///   SINKHOLE_CTRL_SERVICE_0_NAME (optional)
+fn load_indexed_services() -> Result<Vec<ServiceCfg>> {
+    let mut out = Vec::new();
     for idx in 0.. {
-        let url_key = format!("{prefix}_{idx}_URL");
-        let token_key = format!("{prefix}_{idx}_TOKEN");
-        let id_key = format!("{prefix}_{idx}_ID");
-        let name_key = format!("{prefix}_{idx}_NAME");
+        let url_key   = format!("{ENV_PREFIX}SERVICE_{}_URL", idx);
+        let token_key = format!("{ENV_PREFIX}SERVICE_{}_TOKEN", idx);
+        let id_key    = format!("{ENV_PREFIX}SERVICE_{}_ID", idx);
+        let name_key  = format!("{ENV_PREFIX}SERVICE_{}_NAME", idx);
 
         let Some(url_os) = std::env::var_os(&url_key) else {
-            // stop at first gap (contiguous block)
+            // stop at the first gap to keep it simple
             break;
         };
-        let url = url_os
-            .into_string()
-            .map_err(|_| anyhow!("invalid UTF-8 in {}", url_key))?;
-
+        let url = url_os.into_string().map_err(|_| anyhow!("invalid UTF-8 in {}", url_key))?;
         let token = std::env::var(&token_key)
-            .with_context(|| format!("missing {token_key} for {prefix}_{idx}"))?;
-
+            .with_context(|| format!("missing {}", token_key))?;
         let id = std::env::var(&id_key).unwrap_or_else(|_| format!("svc{idx}"));
         let name = std::env::var(&name_key).ok();
 
@@ -188,15 +214,33 @@ fn scan_indexed_services(prefix: &str) -> Result<Vec<ServiceCfg>> {
             name,
         });
     }
-
     Ok(out)
 }
 
 fn normalize_base_url(u: &str) -> String {
-    // strip trailing slashes for consistent joining
     let mut s = u.trim().to_string();
-    while s.ends_with('/') {
-        s.pop();
-    }
+    while s.ends_with('/') { s.pop(); }
     s
+}
+
+fn validate_services(services: &[ServiceCfg]) -> Result<()> {
+    let mut seen = HashSet::new();
+    for s in services {
+        if s.id.trim().is_empty() {
+            bail!("service id must not be empty (service with base_url={})", s.base_url);
+        }
+        if !seen.insert(s.id.clone()) {
+            bail!("duplicate service id '{}'", s.id);
+        }
+        if s.token.trim().is_empty() {
+            bail!("empty token for service '{}'", s.id);
+        }
+        if !s.base_url.starts_with("http://") && !s.base_url.starts_with("https://") {
+            bail!(
+                "service '{}' base_url must start with http:// or https:// (got '{}')",
+                s.id, s.base_url
+            );
+        }
+    }
+    Ok(())
 }

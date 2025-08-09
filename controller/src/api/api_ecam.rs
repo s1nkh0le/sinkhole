@@ -7,139 +7,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkEnvelope};
-use shared::api::{clamp_limit, normalize_order, validate_range};
 use shared::types::ecam_types::EcamEvent;
 use utoipa::{IntoParams, ToSchema};
-
-/// Successful ECAM reply
-#[derive(Serialize, ToSchema)]
-pub struct EcamOkData {
-    pub records: Vec<EcamEvent>,
-    pub next_since: i64,
-}
-impl shared::api::ok::sealed::Sealed for EcamOkData {}
-impl shared::api::ok::OkData for EcamOkData {}
-
-#[derive(Deserialize, Debug, IntoParams)]
-pub struct EcamAggQuery {
-    pub service_id: Option<String>,
-    pub since: Option<i64>,
-    pub until: Option<i64>,
-    pub limit: Option<usize>,
-    pub order: Option<String>,
-}
-
-#[utoipa::path(
-    get,
-    path = "/ecam",
-    params(EcamAggQuery),
-    params(
-        ("ctrl_token" = String, description = "Authentication token"),
-    ),
-    responses(
-        (status = 200, description = "OK", body = OkEnvelope<EcamOkData>),
-        (status = 400, description = "Invalid query", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
-        (status = 404, description = "Unknown service_id", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
-    ),
-    tags = ["controller", "ecam"]
-)]
-pub async fn get_aggregated_ecam(
-    OriginalUri(instance): OriginalUri,
-    Query(q): Query<EcamAggQuery>,
-    State(state): State<ControllerState>,
-) -> (StatusCode, Json<Value>) {
-    let since = q.since.unwrap_or(0);
-    let until = q.until.unwrap_or(i64::MAX);
-
-    let asc = match normalize_order(q.order.as_deref()) {
-        Ok(v) => v,
-        Err(m) => return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result(),
-    };
-    let limit = match clamp_limit(q.limit, 10_000) {
-        Ok(v) => v,
-        Err(m) => return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result(),
-    };
-
-    if let Err(m) = validate_range(since, until) {
-        return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
-    }
-
-    let norm = EcamNorm {
-        service_id: q.service_id.clone(),
-        since,
-        until,
-        limit,
-        asc,
-    };
-
-    ecam_core(state, norm, &instance.to_string()).await
-}
+use shared::api::normalization::{clamp_limit, normalize_order, u64_to_i64_sat, validate_range};
 
 
-
-
-
-#[derive(Deserialize, Debug, IntoParams)]
-pub struct EcamQueryNoSvc {
-    pub since: Option<i64>,
-    pub until: Option<i64>,
-    pub limit: Option<usize>,
-    pub order: Option<String>,
-}
-
-#[utoipa::path(
-    get,
-    path = "/services/{service_id}/ecam",
-    params(EcamServicePath),
-    params(
-        ("ctrl_token" = String, description = "Authentication token"),
-        ("service_id" = String, Path, description = "Service id")
-    ),
-    responses(
-        (status = 200, description = "OK", body = OkEnvelope<EcamOkData>),
-        (status = 400, description = "Invalid query", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
-        (status = 404, description = "Unknown service_id", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
-    ),
-    tags = ["controller", "ecam"]
-)]
-pub async fn get_service_ecam(
-    OriginalUri(instance): OriginalUri,
-    Path(service_id): Path<String>,
-    Query(q): Query<EcamQueryNoSvc>,
-    State(state): State<ControllerState>,
-) -> (StatusCode, Json<Value>) {
-    let since = q.since.unwrap_or(0);
-    let until = q.until.unwrap_or(i64::MAX);
-
-    let asc = match normalize_order(q.order.as_deref()) {
-        Ok(v) => v,
-        Err(m) => return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
-    };
-    let limit = match clamp_limit(q.limit, 10_000) {
-        Ok(v) => v,
-        Err(m) => return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
-    };
-    if let Err(m) = validate_range(since, until) {
-        return ErrorEnvelope::bad_request("sanitization", instance.to_string()).with_detail(m).into_result()
-    }
-
-    // path service_id prevails
-    let norm = EcamNorm {
-        service_id: Some(service_id),
-        since,
-        until,
-        limit,
-        asc,
-    };
-
-    ecam_core(state, norm, &instance.path()).await
-}
-
-struct EcamNorm {
+/// Database level normalized query parameters for records query
+/// (Note: using i64 types for SQLite)
+#[derive(Debug)]
+struct DBEcamNorm {
     service_id: Option<String>,
     since: i64,
     until: i64,
@@ -147,9 +23,183 @@ struct EcamNorm {
     asc: bool,
 }
 
+
+/// Build the normalized DB query or return a ready-made error envelope.
+fn build_ecam_norm(
+    service_id: Option<String>,
+    since: Option<u64>,
+    until: Option<u64>,
+    limit: Option<usize>,
+    order: Option<String>,
+    instance: &str,
+) -> Result<DBEcamNorm, (StatusCode, Json<Value>)> {
+    let since = since.unwrap_or(0);
+    let until = until.unwrap_or(i64::MAX as u64);
+
+    let asc = match normalize_order(order.as_deref()) {
+        Ok(v) => v,
+        Err(m) => {
+            return Err(
+                ErrorEnvelope::bad_request("sanitization", instance)
+                    .with_detail(m)
+                    .into_result()
+            )
+        }
+    };
+
+    const MAX_LIMIT: usize = 10_000;
+    let limit = match clamp_limit(limit, MAX_LIMIT) {
+        Ok(v) => v,
+        Err(m) => {
+            return Err(
+                ErrorEnvelope::bad_request("sanitization", instance)
+                    .with_detail(m)
+                    .into_result()
+            )
+        }
+    };
+
+    if let Err(m) = validate_range(since, until) {
+        return Err(
+            ErrorEnvelope::bad_request("sanitization", instance)
+                .with_detail(m)
+                .into_result()
+        );
+    }
+
+    Ok(DBEcamNorm {
+        service_id,
+        since: u64_to_i64_sat(since),
+        until: u64_to_i64_sat(until),
+        limit,
+        asc,
+    })
+}
+
+
+
+
+/// Successful ECAM reply
+#[derive(Serialize, ToSchema)]
+pub struct EcamOkData {
+    pub records: Vec<EcamEvent>,
+    pub next_since: u64,
+}
+impl shared::api::ok::sealed::Sealed for EcamOkData {}
+impl shared::api::ok::OkData for EcamOkData {}
+
+
+/// Query format for /ecam
+#[derive(Deserialize, Debug, IntoParams)]
+pub struct CtrlRequestGetQueryEcamAgg {
+    pub service_id: Option<String>,
+    pub since: Option<u64>,
+    pub until: Option<u64>,
+    pub limit: Option<usize>,
+    /// "asc" | "desc"
+    pub order: Option<String>,
+}
+
+/// /ecam
+///
+/// Queries the aggregated database and returns a list of ECAM messages (`EcamEvent`) matching the given predicates, along with a cursor
+#[utoipa::path(
+    get,
+    path = "/ecam",
+    params(
+        ("ctrl_token" = String, Query,                              description = "Authentication token"),
+    ),
+    responses(
+        (status = 200, description = "OK",                          body = OkEnvelope<EcamOkData>),
+        (status = 400, description = "Invalid query",               body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized",                body = ErrorEnvelope),
+        (status = 404, description = "Unknown service_id",          body = ErrorEnvelope),
+        (status = 500, description = "Server error",                body = ErrorEnvelope),
+    ),
+    tags = ["controller", "ecam"]
+)]
+pub async fn get_aggregated_ecam(
+    OriginalUri(instance): OriginalUri,
+    Query(q): Query<CtrlRequestGetQueryEcamAgg>,
+    State(state): State<ControllerState>,
+) -> (StatusCode, Json<Value>) {
+    let norm = match build_ecam_norm(
+        q.service_id.clone(),
+        q.since,
+        q.until,
+        q.limit,
+        q.order.clone(),
+        instance.path(),
+    ) {
+        Ok(n)  => n,
+        Err(e) => return e,
+    };
+
+    ecam_core(state, norm, instance.path()).await
+}
+
+
+
+/// Query format for /services/{service_id}/ecam
+///
+/// Doesn't allow to specify the service_id, since it's a path parameter
+#[derive(Deserialize, Debug, IntoParams)]
+pub struct CtrlRequestGetQueryEcamFromPort {
+    pub since: Option<u64>,
+    pub until: Option<u64>,
+    pub limit: Option<usize>,
+    pub order: Option<String>,
+}
+
+/// /services/{service_id}/ecam
+///
+/// Queries the aggregated database and returns a list of ECAM messages (`EcamEvent`) matching the given predicates, along with a cursor
+#[utoipa::path(
+    get,
+    path = "/services/{service_id}/ecam",
+    params(EcamServicePath),
+    params(
+        ("ctrl_token" = String, Query,                          description = "Authentication token"),
+        ("service_id" = String, Path,                           description = "Service id")
+    ),
+    responses(
+        (status = 200, description = "OK",                      body = OkEnvelope<EcamOkData>),
+        (status = 400, description = "Invalid query",           body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized",            body = ErrorEnvelope),
+        (status = 404, description = "Unknown service_id",      body = ErrorEnvelope),
+        (status = 500, description = "Server error",            body = ErrorEnvelope),
+    ),
+    tags = ["controller", "ecam"]
+)]
+pub async fn get_service_ecam(
+    OriginalUri(instance): OriginalUri,
+    Path(service_id): Path<String>,
+    Query(q): Query<CtrlRequestGetQueryEcamFromPort>,
+    State(state): State<ControllerState>,
+) -> (StatusCode, Json<Value>) {
+    let norm = match build_ecam_norm(
+        Some(service_id),
+        q.since,
+        q.until,
+        q.limit,
+        q.order.clone(),
+        instance.path(),
+    ) {
+        Ok(n)  => n,
+        Err(e) => return e,
+    };
+
+    ecam_core(state, norm, instance.path()).await
+}
+
+
+
+
+// Underlying DB-handler for ECAM queries
+#[inline]
 async fn ecam_core(
     state: ControllerState,
-    q: EcamNorm,
+    q: DBEcamNorm,
     instance: &str,
 ) -> (StatusCode, Json<Value>) {
     // Optional: validate service existence if present
@@ -170,7 +220,7 @@ async fn ecam_core(
     match join_res {
         Ok(Ok((events, next_since))) => ok(EcamOkData {
             records: events,
-            next_since,
+            next_since: u64::try_from(next_since).unwrap(),
         }),
         Ok(Err(e)) => ErrorEnvelope::internal("db_query_failure", instance).with_detail(e.to_string()).into_result(),
         Err(e) => ErrorEnvelope::internal("db_query_failure_join", instance).with_detail(e.to_string()).into_result()

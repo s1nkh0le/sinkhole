@@ -11,7 +11,6 @@ use std::sync::Arc;
 use axum::extract::OriginalUri;
 use axum::http::Request;
 use tracing::log::warn;
-use url::form_urlencoded;
 use shared::api::err::ErrorEnvelope;
 
 const CTRL_TOKEN_FIELD: &'static str = "ctrl_token";

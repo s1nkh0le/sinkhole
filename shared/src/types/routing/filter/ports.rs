@@ -8,8 +8,13 @@ use crate::types::ruleset_types::PortInfo;
 /** REQUESTS **/
 
 /// Format for pushing a configuration update to the filter.
+/// 
+/// We don't use `PortInfo` directly because we don't allow to change ports in this way, so we just
+/// wrap the fields we allow to modify in this structure.
+/// 
+/// *Important:* this structure is used as HTTP PUT request body by both controller and filter
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, IntoParams)]
-pub struct FilterRequestPutBodyConfigUpdate {
+pub struct FilterCtrlRequestPutBodyConfigUpdate {
     pub name: Option<String>,
     pub comment: Option<String>,
     pub hex_color: Option<String>,

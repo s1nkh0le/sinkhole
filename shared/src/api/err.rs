@@ -1,14 +1,15 @@
+use std::fmt;
 use axum::http::StatusCode;
 use axum::Json;
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 #[derive(utoipa::ToSchema)]
-#[derive(Serialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorEnvelope {
     /// The status string; always "error"
-    pub status: &'static str,
+    pub status: String,
 
     /// HTTP status code for the error
     pub code: u16,
@@ -29,6 +30,49 @@ pub struct ErrorEnvelope {
     pub instance: Option<String>,
 }
 
+impl fmt::Display for ErrorEnvelope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Compact single-line by default
+        if !f.alternate() {
+            write!(f, "HTTP {} {}", self.code, self.title)?;
+            if let Some(detail) = &self.detail {
+                write!(f, ": {}", detail)?;
+            }
+            // tack on optional key=val pairs
+            if self.error.is_some() || self.instance.is_some() {
+                write!(f, " (")?;
+                let mut first = true;
+                if let Some(err) = &self.error {
+                    write!(f, "error={}", err)?;
+                    first = false;
+                }
+                if let Some(inst) = &self.instance {
+                    if !first { write!(f, ", ")?; }
+                    write!(f, "instance={}", inst)?;
+                }
+                write!(f, ")")?;
+            }
+            return Ok(());
+        }
+
+        // Pretty multi-line with {:#}
+        writeln!(f, "Error")?;
+        writeln!(f, "  status  : {}", self.status)?;
+        writeln!(f, "  code    : {}", self.code)?;
+        writeln!(f, "  title   : {}", self.title)?;
+        if let Some(detail) = &self.detail {
+            writeln!(f, "  detail  : {}", detail)?;
+        }
+        if let Some(err) = &self.error {
+            writeln!(f, "  error   : {}", err)?;
+        }
+        if let Some(inst) = &self.instance {
+            writeln!(f, "  instance: {}", inst)?;
+        }
+        Ok(())
+    }
+}
+
 impl IntoResponse for ErrorEnvelope {
     fn into_response(self) -> Response {
         // Try to map your code into a StatusCode, falling back to 500 if it's invalid
@@ -47,7 +91,7 @@ impl ErrorEnvelope {
         title: impl Into<String>
     ) -> Self {
         Self {
-            status: "error",
+            status: "error".to_string(),
             code: code.as_u16(),
             title: title.into(),
             detail: None,
@@ -64,7 +108,7 @@ impl ErrorEnvelope {
         instance: impl Into<String>,
     ) -> (StatusCode, Json<Value>) {
         Self {
-            status: "error",
+            status: "error".to_string(),
             code: code.as_u16(),
             title: title.into(),
             detail: Some(detail.into()),
@@ -174,35 +218,7 @@ fn reason_for(code: StatusCode) -> &'static str {
 }
 
 
-
 #[inline]
-pub fn err(code: StatusCode, err: impl Into<String>) -> (StatusCode, Json<Value>) {
-    ErrorEnvelope::new(code, reason_for(code))
-        .with_error(err)
-        .into_result()
-}
-
-#[inline]
-pub fn err_with_detail(code: StatusCode, err: impl Into<String>, details: impl Into<String>) -> (StatusCode, Json<Value>) {
-    ErrorEnvelope::new(code, reason_for(code))
-        .with_error(err)
-        .with_detail(details)
-        .into_result()
-}
-
-#[inline]
-pub fn err_with_instance(
-    code: StatusCode,
-    error: impl Into<String>,
-    instance: impl Into<String>,
-) -> (StatusCode, Json<Value>) {
-    ErrorEnvelope::new(code, reason_for(code))
-        .with_error(error)
-        .with_instance(instance)
-        .into_result()
-}
-
-#[inline]
-pub fn err_full(code: StatusCode, title: impl Into<String>, detail: impl Into<String>, error: impl Into<String>, instance: impl Into<String>) -> (StatusCode, Json<Value>) {
-    ErrorEnvelope::full(code, title, detail, error, instance)
+pub fn err<T : Serialize>(code: StatusCode, err: T) -> (StatusCode, Json<Value>) {
+    (code, Json(json!(err)))
 }

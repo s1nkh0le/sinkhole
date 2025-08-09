@@ -13,7 +13,7 @@ use tracing::info;
 use utoipa::{ToSchema};
 use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkEnvelope};
-use shared::types::routing::filter::ports::{FilterReplySuccessPortAndVersion, FilterReplySuccessPortAndVersionVec, FilterRequestPutBodyConfigUpdate};
+use shared::types::routing::filter::ports::{FilterReplySuccessPortAndVersion, FilterReplySuccessPortAndVersionVec, FilterCtrlRequestPutBodyConfigUpdate};
 use shared::utils::version::calc_version_info;
 
 
@@ -125,7 +125,7 @@ pub async fn put_config(
     OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
     State((_cfg, registry, db)): State<SharedState>,
-    Json(body): Json<FilterRequestPutBodyConfigUpdate>, // keep Json() after all else
+    Json(body): Json<FilterCtrlRequestPutBodyConfigUpdate>, // keep Json() after all else
 ) -> (StatusCode, Json<serde_json::Value>) {
     // ── port lookup ─────────────────────────────────────
     let port_runtime = match registry.get(&port) {
