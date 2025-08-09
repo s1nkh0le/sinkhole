@@ -1,4 +1,6 @@
+use std::fmt::{Display, Formatter};
 use shared::api::err::ErrorEnvelope;
+use crate::fetch::error::CtrlErr::{Auth, Timeout};
 
 #[derive(Debug)]
 pub enum CtrlErr {
@@ -10,16 +12,16 @@ pub enum CtrlErr {
     CustomEnvelope(ErrorEnvelope),
 }
 
-impl core::fmt::Display for CtrlErr {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl Display for CtrlErr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use CtrlErr::*;
         match self {
-            Timeout => write!(f, "request timed out"),
-            Network(e) => write!(f, "network error: {}", e),
+            Timeout => write!(f, "Request timed out"),
+            Network(e) => write!(f, "Network error: {}", e),
             Http(c) => write!(f, "HTTP {}", c),
-            Auth => write!(f, "unauthorized"),
-            Json(e) => write!(f, "decode error: {}", e),
-            CustomEnvelope(env) => write!(f, "custom error: {}", env),
+            Auth => write!(f, "Unauthorized"),
+            Json(e) => write!(f, "JSON decode error: {}", e),
+            CustomEnvelope(env) => write!(f, "ErrorEnvelope: {}", env), // assumes Display for ErrorEnvelope
         }
     }
 }

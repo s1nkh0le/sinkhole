@@ -4,30 +4,29 @@ use crate::api::routes_controller;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tracing_subscriber::{fmt, EnvFilter};
+use config::env;
+use state::ctrl;
 
 mod api;
-mod config;
 mod db;
-mod state;
 mod sync;
 pub mod fetch;
-
-
+pub mod config;
+pub mod state;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // ── Logging ───────────────────────────────────────────────────────────
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,hyper_util=info,reqwest=info"));
+        .unwrap_or_else(|_| EnvFilter::new("trace,hyper_util=info,reqwest=info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     // ── Config + state ────────────────────────────────────────────────────
-    let cfg = config::load()?;
+    let cfg = env::load()?;
     let db = db::init(&cfg.controller.db_path)?;
-    let state = state::ControllerState::new(cfg.clone(), db.clone())?;
-
-    // One shared client (cheap to clone)
     let http = reqwest::Client::new();
+    let state = ctrl::ControllerState::new(cfg.clone(), db.clone(), http.clone())?;
+
 
     // ── Background tasks ──────────────────────────────────────────────────
     sync::sync_health::spawn(state.clone(), http.clone());

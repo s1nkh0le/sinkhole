@@ -1,6 +1,6 @@
 use crate::api::fetchers::put_port_config_http;
-use crate::api::util::{ensure_port_exists, ensure_service_exists, ensure_snapshots};
-use crate::state::ControllerState;
+use crate::api::util::{ensure_port_exists, ensure_service_exists, ensure_service_or_fetch_filter_state};
+use crate::state::ctrl::ControllerState;
 use axum::extract::{OriginalUri, Path, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -54,7 +54,7 @@ pub async fn get_list_ports(
     }
 
     // Ensure snapshots (one-shot fetch if needed)
-    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+    if let Err(e) = ensure_service_or_fetch_filter_state(&state, &service_id, &state.http).await {
         return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
             .with_title("Ports not cached")
             .with_detail(e.to_string())
@@ -125,7 +125,7 @@ pub async fn get_port_config(
     }
 
     // ── 2) Ensure snapshots cached (one-shot remote fetch if needed) ────
-    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+    if let Err(e) = ensure_service_or_fetch_filter_state(&state, &service_id, &state.http).await {
         return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
             .with_title("Port config not cached")
             .with_detail(e.to_string())
@@ -195,7 +195,7 @@ pub async fn put_port_config(
     }
 
     // We call ensure_snapshots so we have a snapshot to update afterward
-    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+    if let Err(e) = ensure_service_or_fetch_filter_state(&state, &service_id, &state.http).await {
         return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
             .with_title("Port config not cached")
             .with_detail(e.to_string())
@@ -219,7 +219,7 @@ pub async fn put_port_config(
     };
 
     // ── 3) Relay PUT to filter -----------------------------------------
-    let (info, ver_info) = match put_port_config_http(&Client::new(), &base_url, &token, port, &body, ).await {
+    let (info, ver_info) = match put_port_config_http(&state.http, &base_url, &token, port, &body).await {
         Ok(t) => t,
         Err(err) => {
             return ErrorEnvelope::bad_gateway("filter_response_error", uri.path())

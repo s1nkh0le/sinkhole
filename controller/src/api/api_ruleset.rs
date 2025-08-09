@@ -1,7 +1,7 @@
 use crate::api::fetchers::{put_ruleset_filter, validate_ruleset_filter};
-use crate::api::util::{ensure_port_exists, ensure_service_exists, ensure_snapshots};
+use crate::api::util::{ensure_port_exists, ensure_service_exists, ensure_service_or_fetch_filter_state};
 use crate::fetch::error::CtrlErr;
-use crate::state::ControllerState;
+use crate::state::ctrl::ControllerState;
 use axum::{
     extract::{OriginalUri, Path, State},
     http::StatusCode,
@@ -63,7 +63,7 @@ pub async fn get_ruleset(
     }
 
     // ── 2) Ensure snapshots cached (one-shot fetch if needed) ───────────
-    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+    if let Err(e) = ensure_service_or_fetch_filter_state(&state, &service_id, &state.http).await {
         return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
             .with_title("Ruleset not cached")
             .with_detail(e.to_string())
@@ -162,7 +162,7 @@ pub async fn put_ruleset(
             .into_result();
     }
 
-    if let Err(e) = ensure_snapshots(&state, &service_id, &Client::new()).await {
+    if let Err(e) = ensure_service_or_fetch_filter_state(&state, &service_id, &state.http).await {
         return ErrorEnvelope::service_unavailable("state_unavailable", uri.path())
             .with_title("Ruleset not cached")
             .with_detail(e.to_string())
@@ -318,7 +318,7 @@ pub async fn put_validate_ruleset(
     };
 
     // ── 3) Relay validate call to filter --------------------------------
-    let (validated, _ruleset, maybe_err) = match validate_ruleset_filter(&Client::new(), &base_url, &token, port, &body, ).await {
+    let (validated, _ruleset, maybe_err) = match validate_ruleset_filter(&state.http, &base_url, &token, port, &body, ).await {
         Ok(t) => t,
         Err(ctrl_error) => {
             return ErrorEnvelope::bad_gateway("filter_unknown_error", uri.path())

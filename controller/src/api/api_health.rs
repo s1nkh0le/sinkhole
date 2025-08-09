@@ -1,5 +1,4 @@
-use crate::state::Health::Healthy;
-use crate::state::ControllerState;
+use crate::state::ctrl::ControllerState;
 use axum::http::StatusCode;
 use axum::{
     extract::{OriginalUri, State},
@@ -79,8 +78,8 @@ pub async fn get_list_services(
             ServiceSummary {
                 id: id.clone(),
                 url: svc.cfg.base_url.clone(),
-                healthy: matches!(svc.metadata.health, Healthy),
-                last_sync_ns: svc.metadata.last_state_sync_ns,
+                healthy: svc.health.is_healthy(),
+                last_sync_ns: svc.health.last_sync_ns(),
                 ports,
             }
         }).collect();

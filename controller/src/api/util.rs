@@ -1,13 +1,10 @@
 use anyhow::Result;
-use axum::http::StatusCode;
-use axum::Json;
 
 use crate::fetch::fetch_state::fetch_state;
-use crate::state::{ControllerState, Service};
+use crate::state::ctrl::ControllerState;
 use reqwest::Client;
-use serde_json::json;
 
-pub async fn ensure_snapshots(
+pub async fn ensure_service_or_fetch_filter_state(
     state: &ControllerState,
     service_id: &str,
     http:      &Client,
@@ -59,47 +56,4 @@ pub fn ensure_port_exists(
 
 pub fn ensure_service_exists(state: &ControllerState, service_id: &str) -> bool {
     state.read().services.contains_key(service_id)
-}
-
-
-
-
-
-
-
-
-
-
-pub fn __legacy_ensure_service_exists(
-    state: &ControllerState,
-    svc_id: &str,
-) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
-    if state.read().services.get(svc_id).is_some() {
-        Ok(())
-    } else {
-        Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"status":"error","errors":["unknown service"]})),
-        ))
-    }
-}
-
-
-pub fn __legacy_ensure_service_port_exists(
-    state: &ControllerState,
-    svc_id: &str,
-    port: u16,
-) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
-    let guard = state.read();
-    match guard
-        .services
-        .get(svc_id)
-        .and_then(|s: &Service| s.ports.get(&port))
-    {
-        Some(_) => Ok(()),
-        None => Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"status":"error","errors":["unknown service/port"]})),
-        )),
-    }
 }

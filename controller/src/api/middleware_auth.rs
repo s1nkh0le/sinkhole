@@ -1,4 +1,4 @@
-use crate::config::ControllerCfg;
+use crate::config::env::ControllerCfg;
 use axum::{
     body::Body,
     middleware::Next,

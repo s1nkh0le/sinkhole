@@ -3,9 +3,10 @@ use crate::api::api_ports::{get_port_config, get_list_ports, put_port_config};
 use crate::api::api_records::{get_aggregated_records, get_service_port_records};
 use crate::api::api_ruleset::{get_ruleset, put_ruleset, put_validate_ruleset};
 use crate::api::api_state::get_state;
+use crate::api::api_service::get_service_meta;
 use crate::api::middleware_auth::require_ctrl_token;
 use crate::api::api_health::{get_health, get_list_services};
-use crate::state::ControllerState;
+use crate::state::ctrl::ControllerState;
 use axum::{middleware, routing::get, Router};
 use axum::routing::put;
 use utoipa::{OpenApi};
@@ -25,6 +26,10 @@ use crate::api::api_ecam::__path_get_service_ecam;
 use crate::api::api_records::__path_get_aggregated_records;
 use crate::api::api_records::__path_get_service_port_records;
 
+/// service
+use crate::api::api_service::__path_get_service_meta;
+use crate::api::api_service::__path_put_service_meta;
+
 /// ports config
 use crate::api::api_ports::__path_get_port_config;
 use crate::api::api_ports::__path_put_port_config;
@@ -34,6 +39,7 @@ use crate::api::api_ports::__path_get_list_ports;
 use crate::api::api_ruleset::__path_get_ruleset;
 use crate::api::api_ruleset::__path_put_ruleset;
 use crate::api::api_ruleset::__path_put_validate_ruleset;
+use crate::api::api_service::put_service_meta;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -50,6 +56,10 @@ use crate::api::api_ruleset::__path_put_validate_ruleset;
         // records
         get_aggregated_records,
         get_service_port_records,
+
+        // records
+        get_service_meta,
+        put_service_meta,
 
         // ports config
         get_list_ports,
@@ -87,6 +97,9 @@ pub fn build_router(state: ControllerState) -> Router {
         .route("/records", get(get_aggregated_records))
         .route("/services/{svc}/ports/{port}/records", get(get_service_port_records))
 
+        // service
+        .route("/services/{svc}/meta", get(get_service_meta).put(put_service_meta))
+        
         // ports config
         .route("/services/{svc}/ports", get(get_list_ports))
         .route("/services/{svc}/ports/{port}/config", get(get_port_config).put(put_port_config))

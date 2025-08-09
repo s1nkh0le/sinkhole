@@ -1,8 +1,9 @@
-use crate::config::{ControllerCfg, ServiceCfg};
+use crate::config::env::{ControllerCfg, ServiceCfg};
 use crate::db::boot::read_boot_cursors;
 use crate::db::DbHandle;
+use crate::state::health::Health;
 use parking_lot::RwLock;
-use rand::{rng, Rng};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use shared::types::snapshot_types::PortSnapshot;
 use std::collections::HashMap;
@@ -39,6 +40,7 @@ pub struct Service {
     pub cfg: ServiceCfg,
     pub ports: HashMap<u16, Port>,
     pub service_cursors: ServiceCursors,
+    pub health: Health,
     pub metadata: ServiceMetadata,
 }
 
@@ -89,76 +91,13 @@ impl Service {
     }
 }
 
-/// Health status of one filter instance
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, ToSchema)]
-pub enum Health {
-    Healthy,
-    Unreachable {
-        /// # consecutive failed probes
-        failures: u32,
-        /// do not probe again before this deadline (ns)
-        backoff_until_ns: u64,
-    },
-}
 
-impl Health {
-    /// Fixed retry cadence every time the filter is unreachable
-    pub const RETRY_NS: u64 = 10 * 1_000_000_000; // 10 s
-
-    /// On success, we’re healthy again.
-    pub fn record_success() -> Self {
-        Health::Healthy
-    }
-
-    /// Constant-cadence failure (no back-off) – used by probes.
-    pub fn record_failure(now_ns: u64, _prev: Health) -> Self {
-        Health::Unreachable {
-            failures: 0,
-            backoff_until_ns: now_ns + Self::RETRY_NS,
-        }
-    }
-
-    /// Exponential back-off with ±10 % jitter.
-    pub fn record_failure_backoff(now_ns: u64, prev: Health) -> Self {
-        fn next_backoff_ns(failures: u32) -> u64 {
-            let secs = 2u64.saturating_pow(failures.min(8)); // 1,2,4, ... 256 s
-            secs * 1_000_000_000
-        }
-        fn jitter(ns: u64) -> u64 {
-            let delta = (ns as f64 * 0.10) as u64; // ±10 %
-            let mut rng = rng(); // pre-initialized rng
-            let offset = rng.random_range(0..=delta);
-            ns - delta / 2 + offset
-        }
-
-        let new_failures = match prev {
-            Health::Unreachable { failures, .. } => failures + 1,
-            Health::Healthy => 1,
-        };
-        let backoff = jitter(next_backoff_ns(new_failures));
-
-        Health::Unreachable {
-            failures: new_failures,
-            backoff_until_ns: now_ns + backoff,
-        }
-    }
-
-    /// Are we allowed to poll right now?
-    pub fn can_poll(&self, now_ns: u64) -> bool {
-        match self {
-            Health::Healthy => true,
-            Health::Unreachable {
-                backoff_until_ns, ..
-            } => now_ns >= *backoff_until_ns,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
 pub struct ServiceMetadata {
-    pub health: Health,
-    pub last_state_sync_ns: u64,
-    pub last_error: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub hex_color: Option<String>,
+    pub icon: Option<String>,
 }
 
 #[derive(Debug)]
@@ -170,12 +109,13 @@ pub struct Inner {
 
 #[derive(Debug, Clone)]
 pub struct ControllerState {
-    cfg: Arc<ControllerCfg>,
-    inner: Arc<RwLock<Inner>>,
+    pub cfg: Arc<ControllerCfg>,
+    pub http: Client,
+    pub inner: Arc<RwLock<Inner>>,
 }
 
 impl ControllerState {
-    pub fn new(cfg: crate::config::Config, db: DbHandle) -> anyhow::Result<Self> {
+    pub fn new(cfg: crate::env::Config, db: DbHandle, http: Client) -> anyhow::Result<Self> {
         // 1) Read boot cursors from DB
         let (boot_cursor_map, boot_logs_map) = read_boot_cursors(&db.path)?;
 
@@ -191,20 +131,18 @@ impl ControllerState {
                     service_cursors: ServiceCursors {
                         next_ecam_since: boot_ecam_since,
                     },
-                    metadata: ServiceMetadata {
-                        last_state_sync_ns: 0,
-                        health: Health::Unreachable {
-                            failures: 0,
-                            backoff_until_ns: 0,
-                        },
-                        last_error: None,
+                    health: Health::Degraded {
+                        faults: HashMap::new(),
+                        last_sync_ns: 0
                     },
+                    metadata: ServiceMetadata::default(),
                 },
             );
         }
 
         Ok(Self {
             cfg: Arc::new(cfg.controller),
+            http,
             inner: Arc::new(RwLock::new(Inner {
                 services,
                 db,

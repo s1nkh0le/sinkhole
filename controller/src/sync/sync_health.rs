@@ -1,19 +1,19 @@
 use crate::fetch::error::CtrlErr;
-use crate::state::{ControllerState, Health, Service, ServiceMetadata};
-use axum::http::StatusCode;
+use crate::state::ctrl::{ControllerState, Service, ServiceMetadata};
 use reqwest::Client;
-use shared::utils::time::now_ns;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
+use tracing::debug;
+use tracing::log::warn;
+use crate::state::health::{Health, HealthLayer};
 
-const INTERVAL: Duration = Duration::from_secs(1);
+const TICK:    Duration = Duration::from_millis(250); // scheduler cadence
 const TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn spawn(state: ControllerState, http: Client) {
     for svc_id in state.service_ids() {
-        let st = state.clone();
+        let st  = state.clone();
         let cli = http.clone();
-
         tokio::spawn(async move {
             probe_loop(svc_id, st, cli).await;
         });
@@ -21,48 +21,61 @@ pub fn spawn(state: ControllerState, http: Client) {
 }
 
 async fn probe_loop(svc_id: String, state: ControllerState, http: Client) {
+    let layer = HealthLayer::Probe;
+
     loop {
-        let should_probe = {
+        // snapshot creds & health gate without holding the lock across await
+        let (base_url, token, can_poll, next_allowed) = {
             let g = state.read();
-            matches!(g.services.get(&svc_id).map(|s| &s.metadata.health), Some(Health::Unreachable { .. }))
+            let Some(svc) = g.services.get(&svc_id) else {
+                return; // service removed → stop task
+            };
+            let can   = svc.health.can_poll(layer);
+            let next  = svc.health.next_allowed_ns(layer);
+
+            (svc.cfg.base_url.clone(), svc.cfg.token.clone(), can, next)
         };
 
-        if !should_probe {
-            sleep(INTERVAL).await;
+        if !can_poll {
+            // sleep until allowed (bounded by a small tick so we can respond to shutdowns etc.)
+            let now_ns = shared::utils::time::now_ns();
+            let wait_ns = next_allowed.saturating_sub(now_ns);
+            let wait = Duration::from_nanos(wait_ns).min(TICK);
+
+            sleep(wait).await;
             continue;
         }
 
-        // snapshot
-        let (base_url, token) = {
-            let g = state.read();
-            match g.services.get(&svc_id) {
-                Some(svc) => (svc.cfg.base_url.clone(), svc.cfg.token.clone()),
-                None => return,
-            }
-        };
+        // do the probe
+        let result = ping(&http, &base_url, &token).await;
 
-        let ok = match ping(&http, &base_url, &token).await {
-            Ok(_) => true,
-            Err(CtrlErr::Auth) => {
-                tracing::warn!(%svc_id, "probe 401 – token wrong?");
-                false
-            }
-            Err(_) => false,
-        };
-
+        // update health in place
         {
             let mut w = state.write();
             if let Some(svc) = w.services.get_mut(&svc_id) {
-                if ok {
-                    svc.metadata.health = Health::record_success();
-                } else {
-                    svc.metadata.health =
-                        Health::record_failure(now_ns(), svc.metadata.health);
+                match result {
+                    Ok(()) => {
+                        debug!("[probe_loop({})] health probe ok", svc_id);
+                        svc.health.mark_success(layer);
+                    }
+                    Err(CtrlErr::Auth) => {
+                        // auth errors are “reachable but misconfigured” — still mark failure so UIs can show it
+                        warn!("[probe_loop({})] health probe 401 – token wrong", svc_id);
+                        svc.health.mark_failure(layer, Some("401 unauthorized".into()));
+                    }
+                    Err(e) => {
+                        warn!("[probe_loop({})] health probe failed, error={}", svc_id, e);
+                        svc.health.mark_failure(layer, Some(e.to_string()));
+                    }
                 }
+            } else {
+                // service disappeared while we were probing; just end the task
+                return;
             }
         }
 
-        sleep(INTERVAL).await;
+        // small cadence to avoid busy looping
+        sleep(TICK).await;
     }
 }
 
@@ -71,13 +84,12 @@ async fn ping(http: &Client, base: &str, token: &str) -> Result<(), CtrlErr> {
         .get(&format!("{base}/auth/ping"))
         .query(&[("token", token)])
         .send();
-    let resp = timeout(TIMEOUT, fut)
-        .await
-        .map_err(|_| CtrlErr::Timeout)??;
+
+    let resp = timeout(TIMEOUT, fut).await.map_err(|_| CtrlErr::Timeout)??;
 
     match resp.status().as_u16() {
         200 => Ok(()),
         401 => Err(CtrlErr::Auth),
-        c => Err(CtrlErr::Http(c)),
+        c   => Err(CtrlErr::Http(c)),
     }
 }

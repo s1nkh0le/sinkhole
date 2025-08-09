@@ -44,7 +44,7 @@ pub async fn put_port_config_http(
 
 
 pub async fn put_ruleset_filter(
-    http:   &reqwest::Client,
+    http:   &Client,
     base:   &str,
     token:  &str,
     port:   u16,
@@ -73,8 +73,7 @@ pub async fn put_ruleset_filter(
                 .json()
                 .await
                 .map_err(|e| {
-                    tracing::trace!("Could not deserialize error=: {}", e);
-
+                    tracing::trace!("[put_ruleset_filter()] could not deserialize filter's ErrorEnvelope: {}", e);
                     CtrlErr::Json(e.into())
                 })?;
 
@@ -87,7 +86,7 @@ pub async fn put_ruleset_filter(
 
 
 pub async fn validate_ruleset_filter(
-    http:   &reqwest::Client,
+    http:   &Client,
     base:   &str,
     token:  &str,
     port:   u16,
@@ -107,7 +106,7 @@ pub async fn validate_ruleset_filter(
 
     match resp.status().as_u16() {
         200 => {
-            let v: serde_json::Value =
+            let v: Value =
                 resp.json().await.map_err(|e| CtrlErr::Json(e.into()))?;
             let env: FilterReplySuccessValidationRuleset = extract_ok_data(v)?;
             Ok((env.validated, env.ruleset, env.validation_errors))
@@ -117,8 +116,7 @@ pub async fn validate_ruleset_filter(
                 .json()
                 .await
                 .map_err(|e| {
-                    tracing::trace!("Could not deserialize error=: {}", e);
-
+                    tracing::trace!("[put_ruleset_filter()] could not deserialize filter's ErrorEnvelope: {}", e);
                     CtrlErr::Json(e.into())
                 })?;
 
