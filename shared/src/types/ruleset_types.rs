@@ -1,8 +1,7 @@
+use crate::types::base_types::{Mode, RuleDirection, Scope};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
-use crate::types::base_types::{Mode, RuleDirection, Scope};
-use crate::utils::version::{calc_version_combined_copyover, calc_version_info, calc_version_ruleset};
 
 fn default_enabled() -> bool {
     true

@@ -13,6 +13,7 @@ utoipa = { version = "5.4.0", features = ["macros", "axum_extras", "uuid", "chro
 axum = { version = "0.8.4", features = ["json"] }
 sha2 = "0.11.0-rc.0"
 fnv_rs = "0.4.4"
+form_urlencoded = "1.2.1"
 
 [features]
 default = []

@@ -5,57 +5,93 @@ use axum::body::Body;
 use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use tracing::{error, info};
+use shared::api::auth::bearer::{bearer_token_from_header, token_from_query};
 use shared::api::err::ErrorEnvelope;
 use shared::utils::hashes::sha256_hex;
 
-const FILTER_TOKEN_FIELD: &'static str = "token";
+const FILTER_TOKEN_FIELD: &str = "token";
 
-/// Middleware that enforces `?token=...` against the configured hash.
-/// If no hash is configured, it lets the request pass (with a WARN logged at init time).
-pub async fn require_token(
-    cfg: Config,
-    req: Request<Body>,
-    next: Next,
-) -> Response {
-    let expected = cfg.auth_hash.as_ref();
-    if expected.is_none() {
-        if cfg.debug {
+/// Header-first auth: "Authorization: Bearer <token>".
+/// Temporarily accepts `?token=...` (deprecated) with a WARN.
+pub async fn require_token(cfg: Config, req: Request<Body>, next: Next) -> Response {
+    let expected = match cfg.auth_hash.as_ref() {
+        Some(h) => h,
+        None => {
+            if cfg.debug {
+                sink_ecam::record(
+                    Severity::Warn,
+                    Origin::Security,
+                    "Auth disabled (no AUTH_HASH) — allowing request".to_string(),
+                    None,
+                );
+                return next.run(req).await;
+            } else {
+                panic!("Filter auth disabled in release mode (no AUTH_HASH) — aborting");
+            }
+        }
+    };
+
+    let hdr_tok = bearer_token_from_header(&req);
+    let q_tok   = token_from_query(&req, FILTER_TOKEN_FIELD);
+
+    if let (Some(h), Some(q)) = (&hdr_tok, &q_tok) {
+        if h != q {
             sink_ecam::record(
-                Severity::Warn,
+                Severity::Error,
                 Origin::Security,
-                "Auth hash is not set, auth disabled | allowing control action",
+                "Conflicting token in header and query".to_string(),
                 None,
             );
-            return next.run(req).await;
-        } else {
-            panic!("auth token not set, auth disabled in release mode | shutting down");
+            return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
+                .with_title("Authentication failure")
+                .with_detail("Conflicting tokens in header and query")
+                .into_response();
         }
     }
 
-    let expected = expected.unwrap();
-
-    // Extract token from query string
-    let token_opt = req.uri().query().and_then(|q| {
-        form_urlencoded::parse(q.as_bytes())
-            .find(|(k, _)| k == FILTER_TOKEN_FIELD)
-            .map(|(_, v)| v.into_owned())
-    });
-
-    let Some(token) = token_opt else {
-        sink_ecam::record(Severity::Error, Origin::Security, "authentication failed: no token provided".to_string(), None);
+    let token = if let Some(t) = hdr_tok.clone() {
+        t
+    } else if let Some(t) = q_tok.clone() {
+        sink_ecam::record(
+            Severity::Warn,
+            Origin::Security,
+            "Query token is DEPRECATED; use Authorization: Bearer".to_string(),
+            None,
+        );
+        t
+    } else {
+        sink_ecam::record(
+            Severity::Error,
+            Origin::Security,
+            "Missing token".to_string(),
+            None,
+        );
         return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
-            .with_title("Authenticaton failure")
-            .with_detail("No `token` has been supplied. Request is dropped automatically.")
+            .with_title("Authentication failure")
+            .with_detail("Missing Authorization: Bearer (or deprecated ?token)")
             .into_response();
     };
 
-    let calc = sha256_hex(token.as_bytes());
+
+
+    let calc = sha256_hex(token.trim().as_bytes());
     if &calc != expected {
-        sink_ecam::record(Severity::Error, Origin::Security, format!("authentication failed: bad token '{}'", token), None);
+        sink_ecam::record(
+            Severity::Error,
+            Origin::Security,
+            "Authentication failure: wrong token".to_string(),
+            None,
+        );
         return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
-            .with_title("Authenticaton failure")
-            .with_detail("The supplied `token` doesn't match the controller's allowed token. Request is dropped automatically.")
+            .with_title("Authentication failure")
+            .with_detail("Bad token")
             .into_response();
+        error!("auth_middleware: failed: supplied_token={} (b={:?}, q={:?}), correct_token={}", token, hdr_tok.clone(), q_tok.clone(), expected);
+
+    } else {
+        info!("auth_middleware: passed: supplied_token={} (b={:?}, q={:?}), correct_token={}", token, hdr_tok.clone(), q_tok.clone(), expected);
+
     }
 
     next.run(req).await

@@ -3,55 +3,67 @@ use axum::{
     body::Body,
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
-use serde_json::json;
 use shared::utils::hashes::sha256_hex;
 use std::sync::Arc;
-use axum::extract::OriginalUri;
 use axum::http::Request;
 use tracing::log::warn;
+use shared::api::auth::bearer::{bearer_token_from_header, token_from_query};
 use shared::api::err::ErrorEnvelope;
 
-const CTRL_TOKEN_FIELD: &'static str = "ctrl_token";
+const CTRL_TOKEN_FIELD: &str = "ctrl_token";
 
-/// Middleware that enforces `?ctrl_token=...` against the configured hash.
-/// If no hash is configured, it lets the request pass (with a WARN logged at init time).
+
+/// Header-first auth: "Authorization: Bearer <token>".
+/// Temporarily accepts `?ctrl_token=...` (deprecated) with a WARN.
 pub async fn require_ctrl_token(
     cfg: Arc<ControllerCfg>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    let expected = cfg.ctrl_token_hash.as_ref();
-    if expected.is_none() {
-        if cfg.debug {
-            warn!("[require_ctrl_token()] Auth disabled, allowing controller traffic");
-            return next.run(req).await;
-        } else {
-            panic!("auth token not set, auth disabled in release mode | shutting down");
+    let expected = match cfg.token_hash.as_ref() {
+        Some(h) => h,
+        None => {
+            if cfg.debug {
+                warn!("[require_ctrl_token()] Auth disabled (no CTRL token) — allowing request");
+                return next.run(req).await;
+            } else {
+                panic!("Controller auth disabled in release mode (no CTRL token hash) — aborting");
+            }
+        }
+    };
+
+    let hdr_tok = bearer_token_from_header(&req);
+    let q_tok   = token_from_query(&req, CTRL_TOKEN_FIELD);
+
+    // If both present and disagree → reject (avoid ambiguity).
+    if let (Some(h), Some(q)) = (&hdr_tok, &q_tok) {
+        if h != q {
+            return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
+                .with_title("Authentication failure")
+                .with_detail("Conflicting tokens in header and query")
+                .into_response();
         }
     }
-    let expected = expected.unwrap();
 
-    // Extract ctrl_token from query string
-    let token_opt = req.uri().query().and_then(|q| {
-        form_urlencoded::parse(q.as_bytes())
-            .find(|(k, _)| k == CTRL_TOKEN_FIELD)
-            .map(|(_, v)| v.into_owned())
-    });
-
-    let Some(token) = token_opt else {
+    // Prefer header, fallback to query (deprecated)
+    let token = if let Some(t) = hdr_tok {
+        t
+    } else if let Some(t) = q_tok {
+        warn!("[require_ctrl_token()] query token is DEPRECATED; use Authorization: Bearer");
+        t
+    } else {
         return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
-            .with_title("Authenticaton failure")
-            .with_detail("No `ctrl_token` has been supplied. Request is dropped automatically.")
+            .with_title("Authentication failure")
+            .with_detail("Missing Authorization: Bearer (or deprecated ?ctrl_token)")
             .into_response();
     };
 
-    let calc = sha256_hex(token.as_bytes());
+    let calc = sha256_hex(token.trim().as_bytes());
     if &calc != expected {
         return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
-            .with_title("Authenticaton failure")
-            .with_detail("The supplied `ctrl_token` doesn't match the controller's allowed token. Request is dropped automatically.")
+            .with_title("Authentication failure")
+            .with_detail("Bad token")
             .into_response();
     }
 

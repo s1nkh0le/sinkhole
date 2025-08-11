@@ -1,8 +1,8 @@
 use anyhow::Result;
-
 use crate::fetch::fetch_state::fetch_state;
 use crate::state::ctrl::ControllerState;
 use reqwest::Client;
+use crate::db::boot::BootCursors;
 
 pub async fn ensure_service_or_fetch_filter_state(
     state: &ControllerState,
@@ -34,7 +34,7 @@ pub async fn ensure_service_or_fetch_filter_state(
         let svc = w.services.get_mut(service_id)
             .ok_or_else(|| anyhow::anyhow!("unknown service"))?;
 
-        let mut dummy = std::collections::HashMap::new();
+        let mut dummy = BootCursors::default();
         svc.merge_snapshots(snaps, &mut dummy, service_id);
     }
 

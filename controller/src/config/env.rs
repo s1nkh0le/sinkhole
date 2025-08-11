@@ -21,7 +21,7 @@ pub struct ControllerCfg {
     /// max in-flight port fetches per service
     pub sync_concurrency: usize,
     /// control token hash
-    pub ctrl_token_hash: Option<String>,
+    pub token_hash: Option<String>,
 }
 
 /// One upstream filter "service" the controller talks to.
@@ -87,6 +87,11 @@ struct RawCtrl {
     api_token: Option<String>,
 }
 
+
+const DEFAULT_BINDING: &'static str = "0.0.0.0:7000";
+const DEFAULT_DB_PATH: &'static str = "ctrl.db";
+
+
 pub fn load() -> Result<Config> {
     // 1) Parse globals with envy
     let raw: RawCtrl = envy::prefixed(ENV_PREFIX)
@@ -94,23 +99,21 @@ pub fn load() -> Result<Config> {
         .context("Failed to parse controller environment variables")?;
 
     // 2) Normalize globals
-    let bind_str = raw.bind.unwrap_or_else(|| "0.0.0.0:7000".to_string());
-    let bind: SocketAddr = bind_str
-        .parse()
-        .with_context(|| format!("invalid {}BIND='{}'", ENV_PREFIX, bind_str))?;
+    let bind_str = raw.bind.unwrap_or_else(|| DEFAULT_BINDING.to_string());
+    let bind: SocketAddr = bind_str.parse().with_context(|| format!("invalid {}BIND='{}'", ENV_PREFIX, bind_str))?;
 
-    let db_path = raw.db_path.unwrap_or_else(|| "ctrl.db".to_string());
+    let db_path = raw.db_path.unwrap_or_else(|| DEFAULT_DB_PATH.to_string());
     let pull_interval = Duration::from_secs(raw.pull_interval_secs.unwrap_or(2));
     let sync_interval_secs = raw.sync_interval_secs.unwrap_or(15);
     let sync_concurrency = raw.sync_concurrency.unwrap_or(4);
 
-    let ctrl_token_hash = match (raw.api_token_hash, raw.api_token) {
+    let token_hash = match (raw.api_token_hash, raw.api_token) {
         (Some(h), _) => Some(h),
         (None, Some(tok)) => Some(sha256_hex(tok.as_bytes())),
         (None, None) => None,
     };
 
-    if ctrl_token_hash.is_none() {
+    if token_hash.is_none() {
         warn!("controller auth is DISABLED ({}API_TOKEN[_HASH] not set)", ENV_PREFIX);
     }
 
@@ -121,17 +124,18 @@ pub fn load() -> Result<Config> {
         pull_interval,
         sync_interval_secs,
         sync_concurrency,
-        ctrl_token_hash,
+        token_hash,
     };
 
     // 3) Parse services (supports two patterns)
     let services = load_services_from_env()?;
     if services.is_empty() {
-        bail!(
-            "no services found: set {}SERVICE_0_URL and {}SERVICE_0_TOKEN \
-             or use {}SERVICES=\"id1,id2\" + {}SERVICE_id_URL/TOKEN",
-            ENV_PREFIX, ENV_PREFIX, ENV_PREFIX, ENV_PREFIX
-        );
+        warn!("[load()]: No services provided via env");
+        // bail!(
+        //     "no services found: set {}SERVICE_0_URL and {}SERVICE_0_TOKEN \
+        //      or use {}SERVICES=\"id1,id2\" + {}SERVICE_id_URL/TOKEN",
+        //     ENV_PREFIX, ENV_PREFIX, ENV_PREFIX, ENV_PREFIX
+        // );
     }
 
     // 4) Validate services

@@ -26,8 +26,8 @@ pub async fn fetch_records(
 
     let fut = http
         .get(&url)
+        .bearer_auth(token)
         .query(&[
-            ("token", token),
             ("since", &since.to_string()),
             ("limit", &REC_LIMIT.to_string()),
             ("order", &"asc".to_string()),
@@ -45,37 +45,6 @@ pub async fn fetch_records(
             
             trace!("[fetch_records(), GET {}] got reply {:?}", url, env);
             Ok((env.records, env.next_since))
-        }
-        401 => Err(CtrlErr::Auth),
-        c   => Err(CtrlErr::Http(c)),
-    }
-}
-
-/// GET /ecam
-pub async fn fetch_ecam(
-    http:   &Client,
-    base:   &str,
-    token:  &str,
-    since:  u64,
-) -> Result<(Vec<EcamEvent>, u64), CtrlErr> {
-    let url = format!("{base}/ecam");
-
-    let fut = http
-        .get(&url)
-        .query(&[("token", token), ("since", &since.to_string())])
-        .send();
-
-    let resp = tokio::time::timeout(Duration::from_secs(5), fut)
-        .await
-        .map_err(|_| CtrlErr::Timeout)??;
-
-    match resp.status().as_u16() {
-        200 => {
-            let v: serde_json::Value = resp.json().await.map_err(|e| CtrlErr::Json(e.into()))?;
-            let env: FilterReplyEcamAndCursor = extract_ok_data(v)?;
-            
-            trace!("[fetch_ecam(), GET {}] got reply {:?}", url, env);
-            Ok((env.events, env.next_since))
         }
         401 => Err(CtrlErr::Auth),
         c   => Err(CtrlErr::Http(c)),

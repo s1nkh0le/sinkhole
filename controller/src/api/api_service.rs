@@ -1,166 +1,213 @@
-use axum::extract::{OriginalUri, Path, State};
-use axum::http::StatusCode;
-use axum::Json;
+use std::sync::Arc;
+
+use crate::{env::ServiceCfg, state::ctrl::ControllerState};
+use axum::{
+    extract::{OriginalUri, Path, State},
+    http::StatusCode,
+    Json,
+};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use utoipa::ToSchema;
 use shared::api::err::ErrorEnvelope;
 use shared::api::ok::{ok, OkEnvelope};
-use crate::api::util::ensure_service_exists;
-use crate::state::ctrl::{ControllerState, ServiceMetadata};
+use utoipa::ToSchema;
+use crate::supervisor::supervisor::Supervisor;
 
+/// Request body for adding a new service (runtime).
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct CtrlServiceEditRequest {
-    /// If present, set name; empty string clears it.
+pub struct CtrlServiceAddRequest {
+    /// Unique identifier (stable). Must not collide with existing services.
+    pub id: String,
+    /// Base URL of the filter, e.g. "http://127.0.0.1:7001" (no trailing slash; we’ll normalize).
+    pub base_url: String,
+    /// Bearer token to talk to the filter.
+    pub token: String,
+    /// Optional human-friendly name.
     pub name: Option<String>,
-    /// If present, set description; empty string clears it.
-    pub description: Option<String>,
-    /// If present, set color; empty or invalid clears it.
-    pub hex_color: Option<String>,
-    /// If present, set icon; empty string clears it.
-    pub icon: Option<String>,
+    /// Whether to validate `/auth/ping` before accepting (defaults to true).
+    #[serde(default = "default_validate")]
+    pub check_health_before_adding: bool,
 }
 
+fn default_validate() -> bool {
+    true
+}
+
+/// Successful "add service" reply
 #[derive(Debug, Serialize, ToSchema)]
-pub struct CtrlServiceEditOkData {
+pub struct CtrlServiceAddOkData {
     pub service_id: String,
-    pub meta: ServiceMetadata,
 }
-impl shared::api::ok::sealed::Sealed for CtrlServiceEditOkData {}
-impl shared::api::ok::OkData for CtrlServiceEditOkData {}
+impl shared::api::ok::sealed::Sealed for CtrlServiceAddOkData {}
+impl shared::api::ok::OkData for CtrlServiceAddOkData {}
 
+/// Successful "delete service" reply
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CtrlServiceDeleteOkData {
+    pub service_id: String,
+}
+impl shared::api::ok::sealed::Sealed for CtrlServiceDeleteOkData {}
+impl shared::api::ok::OkData for CtrlServiceDeleteOkData {}
 
-
-
-
-
-
-
-
-
-
-
-#[utoipa::path(
-    get,
-    path = "/services/{service_id}/meta",
-    params(
-        ("ctrl_token" = String, Query,                                      description = "Authentication token"),
-        ("service_id" = String, Path,                                       description = "Service id"),
-    ),
-    responses(
-        (status = 200, description = "OK",                                  body = OkEnvelope<CtrlServiceEditOkData>),
-        (status = 401, description = "Unauthorized",                        body = ErrorEnvelope),
-        (status = 404, description = "Unknown service",                     body = ErrorEnvelope),
-    ),
-    tags = ["controller", "services"]
-)]
-pub async fn get_service_meta(
-    OriginalUri(uri): OriginalUri,
-    Path(service_id): Path<String>,
-    State(state): State<ControllerState>,
-) -> (StatusCode, Json<Value>) {
-    if !ensure_service_exists(&state, &service_id) {
-        return ErrorEnvelope::not_found("service_not_found", uri.path())
-            .with_title("Unknown service")
-            .with_detail(format!("service_id '{service_id}' is not known"))
-            .into_result();
+fn normalize_base_url(u: &str) -> String {
+    let mut s = u.trim().to_string();
+    while s.ends_with('/') {
+        s.pop();
     }
-
-    let meta = {
-        let g = state.read();
-        g.services
-            .get(&service_id)
-            .expect("checked above")
-            .metadata
-            .clone()
-    };
-
-    ok(CtrlServiceEditOkData { service_id, meta })
+    s
 }
 
+async fn quick_ping(http: &Client, base: &str, token: &str) -> Result<(), String> {
+    use tokio::time::{timeout, Duration};
+    let fut = http
+        .get(&format!("{base}/auth/ping"))
+        .bearer_auth(token)
+        .send();
+    let resp = timeout(Duration::from_secs(3), fut)
+        .await
+        .map_err(|_| "timeout".to_string())
+        .and_then(|r| r.map_err(|e| e.to_string()))?;
 
+    match resp.status().as_u16() {
+        200 => Ok(()),
+        401 => Err("unauthorized (bad token)".into()),
+        code => Err(format!("unexpected status {}", code)),
+    }
+}
 
-
-
-
+/// /services/new
+///
+/// Add a service at runtime and start its background tasks
 #[utoipa::path(
     put,
-    path = "/services/{service_id}/meta",
+    path = "/services/new",
     params(
-        ("ctrl_token" = String, Query,                                      description = "Authentication token"),
-        ("service_id" = String, Path,                                       description = "Service id"),
+        ("ctrl_token" = String, Query, description = "Authentication token")
     ),
+    request_body = CtrlServiceAddRequest,
     responses(
-        (status = 200, description = "OK",                                  body = OkEnvelope<CtrlServiceEditOkData>),
-        (status = 401, description = "Unauthorized",                        body = ErrorEnvelope),
-        (status = 404, description = "Unknown service",                     body = ErrorEnvelope),
-        (status = 400, description = "Invalid metadata",                    body = ErrorEnvelope),
+        (status = 200, description = "OK", body = OkEnvelope<CtrlServiceAddOkData>),
+        (status = 400, description = "Invalid service config", body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
+        (status = 409, description = "Service already exists", body = ErrorEnvelope),
+        (status = 502, description = "Filter unreachable", body = ErrorEnvelope),
     ),
-    tags = ["controller", "services"]
+    tags = ["controller","services"]
 )]
-pub async fn put_service_meta(
+pub async fn put_service_supervisor_new(
     OriginalUri(uri): OriginalUri,
-    Path(service_id): Path<String>,
     State(state): State<ControllerState>,
-    Json(req): Json<CtrlServiceEditRequest>,
-) -> (StatusCode, Json<Value>) {
-    // Must exist
-    if !ensure_service_exists(&state, &service_id) {
-        return ErrorEnvelope::not_found("service_not_found", uri.path())
-            .with_title("Unknown service")
-            .with_detail(format!("service_id '{service_id}' is not known"))
+    State(supervisor): State<Arc<Supervisor>>,
+    Json(req): Json<CtrlServiceAddRequest>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    // 1) Basic validation
+    let id = req.id.trim();
+    if id.is_empty() {
+        return ErrorEnvelope::bad_request("invalid_service_id", uri.path())
+            .with_title("Invalid service id")
+            .with_detail("id must be a non-empty string")
+            .into_result();
+    }
+    let base = normalize_base_url(&req.base_url);
+    if !(base.starts_with("http://") || base.starts_with("https://")) {
+        return ErrorEnvelope::bad_request("invalid_base_url", uri.path())
+            .with_title("Invalid base_url")
+            .with_detail("base_url must start with http:// or https://")
+            .into_result();
+    }
+    if req.token.trim().is_empty() {
+        return ErrorEnvelope::bad_request("invalid_token", uri.path())
+            .with_title("Invalid token")
+            .with_detail("token must be non-empty")
             .into_result();
     }
 
-    // Normalize intent: None=unchanged; Some("")=clear; Some("x")=set
-    let name_norm        = normalize_opt_string(req.name);
-    let desc_norm        = normalize_opt_string(req.description);
-    let hex_color_norm   = normalize_opt_string(req.hex_color);
-    let icon_norm        = normalize_opt_string(req.icon);
-
-    // Validate hex color if set
-    if let Some(Some(ref c)) = hex_color_norm {
-        if !validate_hex_color(c) {
-            return ErrorEnvelope::bad_request("invalid_hex_color", uri.path())
-                .with_title("Invalid hex color")
-                .with_detail("expected #RRGGBB or #RRGGBBAA")
+    // 2) Optional preflight check (no state changes)
+    if req.check_health_before_adding {
+        if let Err(msg) = quick_ping(&state.http, &base, &req.token).await {
+            let (code, title) = if msg.contains("unauthorized") {
+                (StatusCode::BAD_REQUEST, "Bad filter token")
+            } else if msg.contains("timeout") {
+                (StatusCode::BAD_GATEWAY, "Filter timed out")
+            } else {
+                (StatusCode::BAD_GATEWAY, "Filter unreachable")
+            };
+            return ErrorEnvelope::bad_request("filter_validation_failed", uri.path())
+                .with_title(title)
+                .with_detail(format!("{} ({})", title, msg))
                 .into_result();
         }
     }
 
-    // Apply patch
-    let meta = {
-        let mut w = state.write();
-        let svc = w.services.get_mut(&service_id).expect("checked above");
-        let m = &mut svc.metadata;
-
-        if let Some(v) = name_norm.clone()      { m.name        = v; }
-        if let Some(v) = desc_norm.clone()      { m.description = v; }
-        if let Some(v) = hex_color_norm.clone() { m.hex_color   = v; }
-        if let Some(v) = icon_norm.clone()      { m.icon        = v; }
-
-        m.clone()
+    // 3) Build cfg and hand off to supervisor
+    let cfg = ServiceCfg {
+        id: id.to_string(),
+        base_url: base.clone(),
+        token: req.token.clone(),
+        name: req.name.clone(),
     };
 
-    ok(CtrlServiceEditOkData {
-        service_id,
-        meta,
-    })
+    match supervisor.add_service(cfg.clone()).await {
+        Ok(()) => ok(CtrlServiceAddOkData { service_id: cfg.id }),
+        Err(e) => {
+            // Map “already exists” to 409; everything else → 500
+            let msg = e.to_string();
+            if msg.contains("already exists") {
+                return ErrorEnvelope::conflict("service_exists", uri.path())
+                    .with_title("Service already exists")
+                    .with_detail(format!("service_id '{id}' already present"))
+                    .into_result();
+            }
+            ErrorEnvelope::internal("supervisor_spawn_failed", uri.path())
+                .with_title("Unable to start background tasks")
+                .with_detail(msg)
+                .into_result()
+        }
+    }
 }
 
+/// /services/{service_id}/delete
+///
+/// Removes a service at runtime and stops its background tasks
+#[utoipa::path(
+    delete,
+    path = "/services/{service_id}/delete",
+    params(
+        ("ctrl_token" = String, Query, description = "Authentication token"),
+        ("service_id" = String, Path, description = "Service id"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = OkEnvelope<CtrlServiceDeleteOkData>),
+        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
+        (status = 404, description = "Unknown service", body = ErrorEnvelope),
+        (status = 500, description = "Server error", body = ErrorEnvelope),
+    ),
+    tags = ["controller", "services"]
+)]
+pub async fn delete_service_supervisor(
+    OriginalUri(uri): OriginalUri,
+    Path(service_id): Path<String>,
+    State(state): State<ControllerState>,
+    State(supervisor): State<Arc<Supervisor>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if !state.read().services.contains_key(&service_id) {
+        return ErrorEnvelope::not_found("service_not_found", uri.path())
+            .with_title("Unknown service")
+            .with_detail(format!("service_id '{service_id}' is not known"))
+            .into_result();
+    }
 
+    // 1) stop background tasks first (so they don’t race with removal)
+    if let Err(e) = supervisor.remove_service(&service_id).await {
+        return ErrorEnvelope::internal("supervisor_remove_failed", uri.path())
+            .with_title("Failed stopping tasks")
+            .with_detail(e.to_string())
+            .into_result();
+    }
 
-fn normalize_opt_string(v: Option<String>) -> Option<Option<String>> {
-    // None => leave unchanged; Some("") => clear; Some("x") => set
-    v.map(|s| {
-        let t = s.trim();
-        if t.is_empty() { None } else { Some(t.to_string()) }
-    })
-}
+    // 2) drop from state
+    let mut w = state.write();
+    w.services.remove(&service_id);
 
-fn validate_hex_color(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    if !(bytes.len() == 7 || bytes.len() == 9) { return false; }
-    if bytes[0] != b'#' { return false; }
-    bytes[1..].iter().all(|b| (*b as char).is_ascii_hexdigit())
+    ok(CtrlServiceDeleteOkData { service_id })
 }

@@ -22,7 +22,7 @@ pub async fn put_port_config_http(
 
     let fut = http
         .put(&url)
-        .query(&[("token", token)])
+        .bearer_auth(token)
         .json(body)
         .send();
 
@@ -54,7 +54,7 @@ pub async fn put_ruleset_filter(
 
     let fut = http
         .put(&url)
-        .query(&[("token", token)])
+        .bearer_auth(token)
         .json(body)
         .send();
 
@@ -96,7 +96,7 @@ pub async fn validate_ruleset_filter(
 
     let fut = http
         .put(&url)
-        .query(&[("token", token)])
+        .bearer_auth(token)
         .json(body)
         .send();
 

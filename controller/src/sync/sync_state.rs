@@ -1,5 +1,7 @@
 use reqwest::Client;
+use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration, Instant};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::fetch::fetch_state::fetch_state;
@@ -7,36 +9,50 @@ use crate::state::ctrl::ControllerState;
 use crate::state::health::HealthLayer;
 
 const REQ_TIMEOUT: Duration = Duration::from_secs(5);
-const TICK:       Duration = Duration::from_millis(200);
+const TICK: Duration = Duration::from_millis(200); // fine-grained wait slice
 
-pub fn spawn(state: ControllerState, http: Client, interval: Duration) {
-    for svc_id in state.service_ids() {
-        let st  = state.clone();
-        let cli = http.clone();
-        tokio::spawn(async move {
-            run_loop(svc_id, st, cli, interval).await;
-        });
-    }
+pub fn spawn_for_service(
+    service_id: String,
+    state: ControllerState,
+    http: Client,
+    cadence: Duration,
+    cancel: CancellationToken,
+) -> JoinHandle<()> {
+    let st = state.clone();
+    let cli = http.clone();
+    tokio::spawn(async move {
+        run_loop(service_id, st, cli, cadence, cancel).await;
+    })
 }
 
 async fn run_loop(
     svc_id: String,
     state: ControllerState,
     http: Client,
-    interval: Duration,
+    cadence: Duration,
+    cancel: CancellationToken,
 ) {
     let layer = HealthLayer::StateSync;
     let mut next_at = Instant::now();
 
     loop {
-        // throttle by interval
-        if Instant::now() < next_at {
-            sleep(TICK).await;
+        if cancel.is_cancelled() {
+            break;
+        }
+
+        // throttle by cadence; sleep only as much as needed, but in small slices so we can cancel
+        let now = Instant::now();
+        if now < next_at {
+            let wait = (next_at - now).min(TICK);
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = sleep(wait) => {}
+            }
             continue;
         }
 
         // snapshot creds & health-gate without holding the lock across awaits
-        let (base_url, token, can_poll, next_allowed) = {
+        let (base_url, token, can_poll, next_allowed_ns) = {
             let g = state.read();
             match g.services.get(&svc_id) {
                 Some(svc) => (
@@ -52,10 +68,13 @@ async fn run_loop(
         if !can_poll {
             // backoff still active: wait a bit, but don’t busy loop
             let now_ns = shared::utils::time::now_ns();
-            let wait_ns = next_allowed.saturating_sub(now_ns);
+            let wait_ns = next_allowed_ns.saturating_sub(now_ns);
             let wait = Duration::from_nanos(wait_ns).min(TICK);
-            sleep(wait).await;
-            // do not advance next_at here — we want to check again soon
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = sleep(wait) => {}
+            }
+            // do not advance next_at here — we want to retry as soon as allowed
             continue;
         }
 
@@ -67,7 +86,7 @@ async fn run_loop(
             let mut w = state.write();
 
             // move out boot map temporarily to avoid double-borrows
-            let mut boot_map = std::mem::take(&mut w.boot_records_since);
+            let mut boot_map = std::mem::take(&mut w.boot_cursors);
 
             if let Some(svc) = w.services.get_mut(&svc_id) {
                 match res {
@@ -91,10 +110,10 @@ async fn run_loop(
             }
 
             // put boot_map back
-            w.boot_records_since = boot_map;
+            w.boot_cursors = boot_map;
         }
 
-        // schedule next tick
-        next_at = Instant::now() + interval;
+        // schedule next tick based on requested cadence
+        next_at = Instant::now() + cadence;
     }
 }

@@ -1,10 +1,9 @@
 use crate::api::routes_filter::SharedState;
-use crate::rules::calc_version_ruleset;
-use axum::Json;
 use axum::extract::{OriginalUri, State};
 use axum::http::StatusCode;
+use axum::Json;
 use shared::api::ok::{ok, OkEnvelope};
-use shared::types::routing::filter::state::{FilterStateOkData};
+use shared::types::routing::filter::state::FilterStateOkData;
 
 
 /// /fetch

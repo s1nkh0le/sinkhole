@@ -13,7 +13,10 @@ pub async fn fetch_state(
     timeout: Duration,
 ) -> Result<Vec<PortSnapshot>, CtrlErr> {
     let url = format!("{base}/state");
-    let fut = http.get(&url).query(&[("token", token)]).send();
+    let fut = http
+        .get(&url)
+        .bearer_auth(token)
+        .send();
 
     let resp = tokio::time::timeout(timeout, fut).await.map_err(|_| CtrlErr::Timeout)??;
 

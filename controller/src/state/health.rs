@@ -21,6 +21,18 @@ pub struct FaultInfo {
     pub last_success_ns: u64,
 }
 
+impl Default for FaultInfo {
+    fn default() -> Self {
+        Self {
+            failures: 0,
+            backoff_until_ns: 0,   // pollable immediately
+            last_error: None,
+            last_attempt_ns: 0,
+            last_success_ns: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum Health {
     Healthy {
@@ -44,7 +56,7 @@ enum Backoff { Const { interval_ns: u64 }, Exp { max_exp: u32 } }
 
 impl Health {
     // defaults
-    const PROBE_CONST_INTERVAL_NS: u64 = 5 * 1_000_000_000; // 10s
+    const PROBE_CONST_INTERVAL_NS: u64 = 5 * 1_000_000_000; // 5s
     const HEAVY_EXP_MAX_EXP: u32 = 5; // capped at 2^5 = 32s
 
     fn backoff_for(layer: HealthLayer) -> Backoff {
@@ -128,6 +140,18 @@ impl Health {
 
         faults.insert(layer, fi);
         Health::Degraded { faults, last_sync_ns }
+    }
+
+
+    pub fn degraded_with_layers(layers: &[HealthLayer]) -> Self {
+        let mut faults = HashMap::new();
+        for &layer in layers {
+            faults.insert(layer, FaultInfo::default());
+        }
+        Health::Degraded {
+            faults,
+            last_sync_ns: 0,
+        }
     }
 
     /// Mutating convenience (ergonomic at call sites)

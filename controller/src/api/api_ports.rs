@@ -4,7 +4,6 @@ use crate::state::ctrl::ControllerState;
 use axum::extract::{OriginalUri, Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
 use shared::api::err::ErrorEnvelope;

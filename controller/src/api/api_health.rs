@@ -20,6 +20,8 @@ pub struct HealthOkData {
 impl shared::api::ok::sealed::Sealed for HealthOkData {}
 impl shared::api::ok::OkData for HealthOkData {}
 
+
+/// /health
 #[utoipa::path(
     get,
     path = "/health",
@@ -32,7 +34,10 @@ pub async fn get_health(
     ok(HealthOkData { healthy: true })
 }
 
+
+
 // ─────────────────────────── /services ─────────────────────────
+
 
 #[derive(Serialize, ToSchema)]
 pub struct ServiceSummary {
@@ -50,14 +55,18 @@ pub struct ServicesOkData {
 impl shared::api::ok::sealed::Sealed for ServicesOkData {}
 impl shared::api::ok::OkData for ServicesOkData {}
 
+
+/// /services
+///
+/// Returns a brief list of service summaries with basic information
 #[utoipa::path(
     get,
     path = "/services",
-    params(("ctrl_token" = String, Query, description = "Authentication token")),
+    params(("ctrl_token" = String, Query,                           description = "Authentication token")),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<ServicesOkData>),
-        (status = 401, description = "Unauthorized"),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 200, description = "OK",                          body = OkEnvelope<ServicesOkData>),
+        (status = 401, description = "Unauthorized",                body = ErrorEnvelope),
+        (status = 500, description = "Server error",                body = ErrorEnvelope),
     ),
     tag = "controller"
 )]

@@ -1,50 +1,58 @@
 use crate::api::api_ecam::{get_aggregated_ecam, get_service_ecam};
-use crate::api::api_ports::{get_port_config, get_list_ports, put_port_config};
+use crate::api::api_health::{get_health, get_list_services};
+use crate::api::api_ports::{get_list_ports, get_port_config, put_port_config};
 use crate::api::api_records::{get_aggregated_records, get_service_port_records};
 use crate::api::api_ruleset::{get_ruleset, put_ruleset, put_validate_ruleset};
+use crate::api::api_service::{delete_service_supervisor, put_service_supervisor_new};
+use crate::api::api_service_meta::get_service_meta;
+use crate::api::api_service_meta::put_service_meta;
 use crate::api::api_state::get_state;
-use crate::api::api_service::get_service_meta;
 use crate::api::middleware_auth::require_ctrl_token;
-use crate::api::api_health::{get_health, get_list_services};
-use crate::state::ctrl::ControllerState;
+use axum::routing::{delete, put};
 use axum::{middleware, routing::get, Router};
-use axum::routing::put;
-use utoipa::{OpenApi};
+use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-// paths generated methods
-/// global fetch
+
+/// global
 use crate::api::api_health::__path_get_health;
 use crate::api::api_health::__path_get_list_services;
 use crate::api::api_state::__path_get_state;
+
 
 /// ecam
 use crate::api::api_ecam::__path_get_aggregated_ecam;
 use crate::api::api_ecam::__path_get_service_ecam;
 
+
 /// records
 use crate::api::api_records::__path_get_aggregated_records;
 use crate::api::api_records::__path_get_service_port_records;
 
+
 /// service
-use crate::api::api_service::__path_get_service_meta;
-use crate::api::api_service::__path_put_service_meta;
+use crate::api::api_service::__path_put_service_supervisor_new;
+use crate::api::api_service::__path_delete_service_supervisor;
+use crate::api::api_service_meta::__path_get_service_meta;
+use crate::api::api_service_meta::__path_put_service_meta;
+
 
 /// ports config
 use crate::api::api_ports::__path_get_port_config;
-use crate::api::api_ports::__path_put_port_config;
 use crate::api::api_ports::__path_get_list_ports;
+use crate::api::api_ports::__path_put_port_config;
 
 /// rulesets
 use crate::api::api_ruleset::__path_get_ruleset;
 use crate::api::api_ruleset::__path_put_ruleset;
 use crate::api::api_ruleset::__path_put_validate_ruleset;
-use crate::api::api_service::put_service_meta;
+use crate::supervisor::app_state::AppState;
+
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        // global fetch
+        // global
         get_health,
         get_list_services,
         get_state,
@@ -57,9 +65,9 @@ use crate::api::api_service::put_service_meta;
         get_aggregated_records,
         get_service_port_records,
 
-        // records
-        get_service_meta,
-        put_service_meta,
+        // service
+        put_service_supervisor_new, delete_service_supervisor,
+        get_service_meta, put_service_meta,
 
         // ports config
         get_list_ports,
@@ -80,11 +88,12 @@ use crate::api::api_service::put_service_meta;
 )]
 struct ApiDoc;
 
-pub fn build_router(state: ControllerState) -> Router {
-    let cfg_for_mw = state.cfg();
+
+pub fn build_router(state: AppState) -> Router {
+    let cfg_for_mw = state.ctrl.cfg();
 
     let protected = Router::new()
-        // global fetch
+        // global
         .route("/auth/ping", get(get_health))
         .route("/services", get(get_list_services))
         .route("/state", get(get_state))
@@ -98,8 +107,10 @@ pub fn build_router(state: ControllerState) -> Router {
         .route("/services/{svc}/ports/{port}/records", get(get_service_port_records))
 
         // service
+        .route("/services/new", put(put_service_supervisor_new))
+        .route("/services/{svc}/delete", delete(delete_service_supervisor))
         .route("/services/{svc}/meta", get(get_service_meta).put(put_service_meta))
-        
+
         // ports config
         .route("/services/{svc}/ports", get(get_list_ports))
         .route("/services/{svc}/ports/{port}/config", get(get_port_config).put(put_port_config))

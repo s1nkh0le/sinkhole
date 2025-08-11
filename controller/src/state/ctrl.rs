@@ -1,5 +1,5 @@
 use crate::config::env::{ControllerCfg, ServiceCfg};
-use crate::db::boot::read_boot_cursors;
+use crate::db::boot::{read_boot_cursors, BootCursors};
 use crate::db::DbHandle;
 use crate::state::health::Health;
 use parking_lot::RwLock;
@@ -59,7 +59,7 @@ impl Service {
     pub fn merge_snapshots(
         &mut self,
         snaps: Vec<PortSnapshot>,
-        boot_logs_map: &mut HashMap<(String, u16), u64>,
+        boot_cursors: &mut BootCursors,
         svc_id: &str,
     ) {
         let mut seen = std::collections::HashSet::new();
@@ -72,8 +72,9 @@ impl Service {
 
             // initialise record cursor from boot map if this is first time
             if p.cursors.next_records_since == 0 {
-                if let Some(next) = boot_logs_map.remove(&(svc_id.to_string(), port)) {
-                    p.cursors.next_records_since = next;
+                // We remove the entry so that we don't re-apply it accidentally
+                if let Some(next) = &boot_cursors.records_cursors.remove(&(svc_id.to_string(), port)) {
+                    p.cursors.next_records_since = *next;
                 }
             }
 
@@ -104,7 +105,7 @@ pub struct ServiceMetadata {
 pub struct Inner {
     pub services: HashMap<String, Service>,
     pub db: DbHandle,
-    pub boot_records_since: HashMap<(String, u16), u64>,
+    pub boot_cursors: BootCursors,
 }
 
 #[derive(Debug, Clone)]
@@ -115,13 +116,18 @@ pub struct ControllerState {
 }
 
 impl ControllerState {
-    pub fn new(cfg: crate::env::Config, db: DbHandle, http: Client) -> anyhow::Result<Self> {
-        // 1) Read boot cursors from DB
-        let (boot_cursor_map, boot_logs_map) = read_boot_cursors(&db.path)?;
-
+    pub fn new(env_cfg: crate::env::Config, db: DbHandle, http: Client) -> anyhow::Result<Self> {
+        // Services hashmap, initialized as empty
         let mut services = HashMap::new();
-        for svc in cfg.services {
-            let boot_ecam_since = boot_cursor_map.get(&svc.id).copied().unwrap_or(0);
+
+        // Reading boot cursors from the database, so that when a previously-existing service is added,
+        // we can pick up the fetching process where we left off
+        let boot_cursors: BootCursors = read_boot_cursors(&db.path)?;
+
+        // We start booting services from the environment variables
+        for svc in env_cfg.services {
+            // If the service has an entry, we extract it to store insid
+            let boot_ecam_since = boot_cursors.ecam_cursors.get(&svc.id).copied().unwrap_or(0);
 
             services.insert(
                 svc.id.clone(),
@@ -141,13 +147,9 @@ impl ControllerState {
         }
 
         Ok(Self {
-            cfg: Arc::new(cfg.controller),
+            cfg: Arc::new(env_cfg.controller),
             http,
-            inner: Arc::new(RwLock::new(Inner {
-                services,
-                db,
-                boot_records_since: boot_logs_map,
-            })),
+            inner: Arc::new(RwLock::new(Inner { services, db, boot_cursors, })),
         })
     }
 

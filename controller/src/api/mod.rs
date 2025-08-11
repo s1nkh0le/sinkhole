@@ -8,4 +8,5 @@ pub mod routes_controller;
 pub mod util;
 pub mod api_ecam;
 mod fetchers;
+mod api_service_meta;
 mod api_service;

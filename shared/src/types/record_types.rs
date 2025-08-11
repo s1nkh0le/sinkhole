@@ -76,6 +76,7 @@ pub struct EvaluationRecord {
     pub inbound: bool,
     pub public_port: u16,
     pub upstream_port: u16,
+    /// Allow | Drop
     pub decision: Decision,
     pub drop_reasons: Vec<DropReason>,
     pub http: Option<HttpInfo>,

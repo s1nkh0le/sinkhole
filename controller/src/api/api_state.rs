@@ -19,6 +19,7 @@ impl shared::api::ok::OkData for CtrlReplyBodyState {}
 
 #[derive(Serialize, ToSchema)]
 pub struct CtrlReplyBodyController {
+    pub debug: bool,
     pub bind: String,
     pub db_path: String,
     pub pull_interval_secs: u64,
@@ -77,6 +78,7 @@ pub async fn get_state(
     let ctrl_meta = {
         let cfg = state.cfg();
         CtrlReplyBodyController {
+            debug:              cfg.debug,
             bind:               cfg.bind.to_string(),
             db_path:            cfg.db_path.clone(),
             pull_interval_secs: cfg.pull_interval.as_secs(),
