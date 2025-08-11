@@ -1,0 +1,145 @@
+@font-face {
+    font-family: 'JetBrains Mono', monospace;
+    src: url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&display=swap");
+    font-weight: 400;
+    font-style: normal
+}
+
+@font-face {
+    font-family: 'JetBrains Mono', monospace;
+    src: url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500&display=swap");
+    font-weight: 500;
+    font-style: normal
+}
+
+@font-face {
+    font-family: 'JetBrains Mono', monospace;
+    src: url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap");
+    font-weight: 700;
+    font-style: normal
+}
+
+
+@font-face {
+    font-family: 'Manrope', monospace;
+    src: url("https://fonts.googleapis.com/css2?family=Manrope:wght@400&display=swap");
+    font-weight: 400;
+    font-style: normal
+}
+
+@font-face {
+    font-family: 'Manrope', monospace;
+    src: url("https://fonts.googleapis.com/css2?family=Manrope:wght@500&display=swap");
+    font-weight: 500;
+    font-style: normal
+}
+
+@font-face {
+    font-family: 'Manrope', monospace;
+    src: url("https://fonts.googleapis.com/css2?family=Manrope:wght@700&display=swap");
+    font-weight: 700;
+    font-style: normal;
+}
+
+
+/*
+body, input {
+    font-family: 'Manrope';
+}
+
+
+.md-typeset h1, .md-typeset h2, .md-typeset h3, .md-typeset h4, .md-nav__link {
+    font-family: 'Manrope';
+    line-height: normal;
+    font-weight: bold;
+}
+
+
+.md-typeset h1, .md-typeset h2, .md-typeset h3, .md-typeset h4 {
+    font-family: 'Manrope';
+    line-height: normal;
+    font-weight: bold;
+}
+
+.logo {
+  text-align: center;
+  margin-top: 150px;
+}*/
+
+
+
+
+
+
+:root {
+    --md-admonition-icon--assumption: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m21 11.5 1.5 1.5-6.99 7L11 15.5l1.5-1.5 3.01 3z"></path><path d="M17 5v3H7V5H5v14h6.68l-3.51-3.5 4.33-4.33 3.01 3 3.49-3.5V5z" opacity=".3"></path><path d="M5 19V5h2v3h10V5h2v5.67l2-2V5c0-1.1-.9-2-2-2h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8.68l-2-2zm7-16c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1"></path></svg>');
+    --md-admonition-icon--idea: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 4C8.97 4 6.5 6.47 6.5 9.5c0 2.47 1.49 3.89 2.35 4.5h6.3c.86-.61 2.35-2.03 2.35-4.5C17.5 6.47 15.03 4 12 4" opacity=".3"></path><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2m-4-5h8v2H8zm4-15C7.86 2 4.5 5.36 4.5 9.5c0 3.82 2.66 5.86 3.77 6.5h7.46c1.11-.64 3.77-2.68 3.77-6.5C19.5 5.36 16.14 2 12 2m3.15 12h-6.3c-.86-.61-2.35-2.03-2.35-4.5C6.5 6.47 8.97 4 12 4s5.5 2.47 5.5 5.5c0 2.47-1.49 3.89-2.35 4.5"></path></svg>');
+    --md-admonition-icon--cube: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5M12,4.15L6.04,7.5L12,10.85L17.96,7.5L12,4.15M5,15.91L11,19.29V12.58L5,9.21V15.91M19,15.91V9.21L13,12.58V19.29L19,15.91Z" /></svg>');
+    --md-admonition-icon--binary: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect height="4.5" width="3" y="1.75" x="3.25"/><path d="m9.75 6.25h3m-3-4.5h1.5v4"/><rect height="4.5" width="3" y="9.75" x="9.75"/><path d="m3.25 14.25h3m-3-4.5h1.5v4"/></svg>');
+}
+
+
+
+.md-typeset .admonition.assumption, .md-typeset details.assumption {
+    border-color: rgb(96, 125, 139);
+}
+
+.md-typeset .assumption > .admonition-title, .md-typeset .assumption > summary {
+    background-color: rgba(96, 125, 139, 0.2);
+}
+
+.md-typeset .assumption > .admonition-title::before, .md-typeset .assumption > summary::before {
+    background-color: rgb(96, 125, 139);
+    -webkit-mask-image: var(--md-admonition-icon--assumption);
+    mask-image: var(--md-admonition-icon--assumption);
+}
+
+
+
+
+.md-typeset .admonition.idea, .md-typeset details.idea {
+    border-color: rgb(255, 193, 7);
+}
+
+.md-typeset .idea > .admonition-title, .md-typeset .idea > summary {
+    background-color: rgba(255, 193, 7, 0.15);
+}
+
+.md-typeset .idea > .admonition-title::before, .md-typeset .idea > summary::before {
+    background-color: rgb(255, 193, 7);
+    -webkit-mask-image: var(--md-admonition-icon--idea);
+    mask-image: var(--md-admonition-icon--idea);
+}
+
+
+
+.md-typeset .admonition.cube, .md-typeset details.cube {
+    border-color: rgb(255, 193, 7);
+}
+
+.md-typeset .cube > .admonition-title, .md-typeset .cube > summary {
+    background-color: rgba(255, 193, 7, 0.15);
+}
+
+.md-typeset .cube > .admonition-title::before, .md-typeset .cube > summary::before {
+    background-color: rgb(255, 193, 7);
+    -webkit-mask-image: var(--md-admonition-icon--cube);
+    mask-image: var(--md-admonition-icon--cube);
+}
+
+
+
+
+.md-typeset .admonition.binary, .md-typeset details.binary {
+    border-color: rgb(255, 193, 7);
+}
+
+.md-typeset .binary > .admonition-title, .md-typeset .binary > summary {
+    background-color: rgba(255, 193, 7, 0.15);
+}
+
+.md-typeset .binary > .admonition-title::before, .md-typeset .binary > summary::before {
+    background-color: rgb(255, 193, 7);
+    -webkit-mask-image: var(--md-admonition-icon--binary);
+    mask-image: var(--md-admonition-icon--binary);
+}

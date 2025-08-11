@@ -1,0 +1,28 @@
+:root > * {
+    /* Accent color shades */
+    --md-accent-fg-color:                #FFAB00;
+    --md-accent-fg-color--transparent:   hsla(#{hex2hsl(var($--md-accent-fg-color))}, 0.1);
+    --md-accent-bg-color:                hsla(0, 0%, 100%, 1);
+    --md-accent-bg-color--light:         hsla(0, 0%, 100%, 0.7);
+}
+
+
+*::selection {
+    background: #0097A7;
+    color: #ffffff;
+}
+
+*::-moz-selection {
+    background: #0097A7;
+    color: #ffffff;
+}
+
+*::-webkit-selection {
+    background: #0097A7;
+    color: #ffffff;
+}
+
+
+.admonition {
+    font-size: .67rem !important;
+}
