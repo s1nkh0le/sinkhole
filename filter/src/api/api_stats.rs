@@ -6,11 +6,14 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde_json::json;
 
+/// /ports/{port}/stats
+///
+/// Not implemented yet
 #[utoipa::path(
     put,
     path = "/ports/{port}/stats",
     params(
-        ("token" = String, Query,                   description = "Authentication token"),
+        // ("token" = String, Query,                   description = "Authentication token"),
         ("port" = u16, Path,                        description = "Public port"),
     ),
     responses(

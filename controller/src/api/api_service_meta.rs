@@ -43,7 +43,7 @@ impl shared::api::ok::OkData for CtrlServiceEditOkData {}
     get,
     path = "/services/{service_id}/meta",
     params(
-        ("ctrl_token" = String, Query,                                      description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                                      description = "Authentication token"),
         ("service_id" = String, Path,                                       description = "Service id"),
     ),
     responses(
@@ -89,7 +89,7 @@ pub async fn get_service_meta(
     put,
     path = "/services/{service_id}/meta",
     params(
-        ("ctrl_token" = String, Query,                                      description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                                      description = "Authentication token"),
         ("service_id" = String, Path,                                       description = "Service id"),
     ),
     responses(

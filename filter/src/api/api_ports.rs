@@ -26,7 +26,7 @@ use shared::utils::version::calc_version_info;
     get,
     path = "/ports",
     params(
-        ("token" = String, Query,                               description = "Authentication token"),
+        // ("token" = String, Query,                               description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK",                      body = OkEnvelope<FilterReplySuccessPortAndVersionVec>),
@@ -63,7 +63,7 @@ pub async fn get_port_list(
     get,
     path = "/ports/{port}/config",
     params(
-        ("token" = String, Query,                               description = "Authentication token"),
+        // ("token" = String, Query,                               description = "Authentication token"),
         ("port" = u16, Path,                                    description = "Public port"),
     ),
     responses(
@@ -110,7 +110,7 @@ pub async fn get_config(
     put,
     path = "/ports/{port}/config",
     params(
-        ("token" = String, Query,                               description = "Authentication token"),
+        // ("token" = String, Query,                               description = "Authentication token"),
         ("port" = u16, Path,                                    description = "Public port"),
     ),
     responses(

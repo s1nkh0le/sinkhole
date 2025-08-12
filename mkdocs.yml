@@ -14,22 +14,27 @@ theme:
     repo: fontawesome/brands/github
     annotation: material/plus-circle
 
-  logo: assets/icons/default/icon-512.png
+  logo: assets/icons/default/icon-192.png
   favicon: assets/icons/default/favicon.ico
 
   features:
-    - navigation.instant
-    - navigation.instant.progress
+    # keep off: navigation.instant conflics with the swagger-ui-tag plugin
+    #- navigation.instant
+    #- navigation.instant.progress
     - content.code.annotate
     # - content.tabs.link
     - navigation.tabs
     - navigation.tracking
     # - navigation.sections
-    # - navigation.expand
+    - navigation.expand
+    - navigation.path
+    - navigation.indexes
     # - navigation.tabs.sticky
+    - toc.follow
     - search.highlight
     - search.share
     - search.suggest
+    - offline
 
   palette:
     - media: "(prefers-color-scheme: light)"
@@ -55,6 +60,7 @@ plugins:
   - search:
   - tags:
       tags: true
+  - swagger-ui-tag:
 
 
 markdown_extensions:
@@ -104,3 +110,8 @@ extra_javascript:
 nav:
   - Index:
       - 'Overview': index.md
+  - Reference:
+      - 'Api':
+          - pages/reference/swagger/index.md
+          - 'Filter': pages/reference/swagger/openapi-filter.md
+          - 'Controller': pages/reference/swagger/openapi-ctrl.md

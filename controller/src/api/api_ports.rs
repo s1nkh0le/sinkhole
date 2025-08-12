@@ -29,7 +29,7 @@ impl OkData for CtrlReplyPortListOkData {}
     get,
     path = "/services/{service_id}/ports",
     params(
-        ("ctrl_token" = String, Query,                                          description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                                          description = "Authentication token"),
         ("service_id" = String, Path,                                           description = "Service id")
     ),
     responses(
@@ -96,7 +96,7 @@ impl OkData for CtrlReplyPortInfo {}
     get,
     path = "/services/{service_id}/ports/{port}/config",
     params(
-        ("ctrl_token" = String, Query,                                          description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                                          description = "Authentication token"),
         ("service_id" = String, Path,                                           description = "Service id"),
         ("port"       = u16,    Path,                                           description = "Port number")
     ),
@@ -165,7 +165,7 @@ pub async fn get_port_config(
     put,
     path = "/services/{service_id}/ports/{port}/config",
     params(
-        ("ctrl_token" = String, Query,                                          description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                                          description = "Authentication token"),
         ("service_id" = String, Path,                                           description = "Service id"),
         ("port"       = u16,    Path,                                           description = "Port number")
     ),

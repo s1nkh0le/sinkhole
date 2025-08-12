@@ -18,7 +18,7 @@ use shared::types::routing::filter::ecam::{FilterReplyEcamAndCursor, FilterReque
     get,
     path = "/ecam",
     params(
-        ("token" = String, Query, description = "Authentication token"),
+        // ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK", body = OkEnvelope<FilterReplyEcamAndCursor>),

@@ -35,7 +35,7 @@ impl shared::api::ok::OkData for CtrlReplyRulesetOkData {}
     get,
     path = "/services/{service_id}/ports/{port}/ruleset",
     params(
-        ("ctrl_token" = String, Query,                                                  description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                                                  description = "Authentication token"),
         ("service_id" = String, Path,                                                   description = "Service identifier"),
         ("port" = u16, Path,                                                            description = "Public port"),
     ),
@@ -133,7 +133,7 @@ pub struct CtrlReplyRulesetValidationErrorEnvelope {
     put,
     path = "/services/{service_id}/ports/{port}/ruleset",
     params(
-        ("ctrl_token" = String, Query,                                              description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                                              description = "Authentication token"),
         ("service_id" = String, Path,                                               description = "Service identifier"),
         ("port" = u16, Path,                                                        description = "Public port"),
     ),
@@ -273,7 +273,7 @@ pub async fn put_ruleset(
     put,
     path = "/services/{service_id}/ports/{port}/ruleset/validate",
     params(
-        ("ctrl_token" = String, Query,                                                  description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                                                  description = "Authentication token"),
         ("service_id" = String, Path,                                                   description = "Service identifier"),
         ("port" = u16, Path,                                                            description = "Public port"),
     ),

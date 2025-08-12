@@ -25,6 +25,7 @@ impl shared::api::ok::OkData for HealthOkData {}
 #[utoipa::path(
     get,
     path = "/health",
+    security(()),
     responses((status = 200, description = "OK", body = OkEnvelope<HealthOkData>)),
     tags = ["controller", "unauthenticated"]
 )]
@@ -60,7 +61,9 @@ impl shared::api::ok::OkData for ServicesOkData {}
 #[utoipa::path(
     get,
     path = "/services",
-    params(("ctrl_token" = String, Query,                           description = "Authentication token")),
+    params(
+        // ("ctrl_token" = String, Query,                              description = "Authentication token")
+    ),
     responses(
         (status = 200, description = "OK",                          body = OkEnvelope<ServicesOkData>),
         (status = 401, description = "Unauthorized",                body = ErrorEnvelope),

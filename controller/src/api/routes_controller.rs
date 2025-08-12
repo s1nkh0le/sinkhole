@@ -10,7 +10,9 @@ use crate::api::api_state::get_state;
 use crate::api::middleware_auth::require_ctrl_token;
 use axum::routing::{delete, put};
 use axum::{middleware, routing::get, Router};
-use utoipa::OpenApi;
+use utoipa::{Modify, OpenApi};
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::openapi::SecurityRequirement;
 use utoipa_swagger_ui::SwaggerUi;
 
 
@@ -51,6 +53,7 @@ use crate::supervisor::app_state::AppState;
 
 #[derive(OpenApi)]
 #[openapi(
+    modifiers(&BearerAddon),
     paths(
         // global
         get_health,
@@ -87,6 +90,28 @@ use crate::supervisor::app_state::AppState;
     )
 )]
 struct ApiDoc;
+struct BearerAddon;
+
+impl Modify for BearerAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        const BEARER: &'static str = "bearerAuth";
+        let components = openapi.components.get_or_insert_with(Default::default);
+        components.add_security_scheme(
+            BEARER,
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("Token")
+                    .build(),
+            ),
+        );
+
+        openapi
+            .security
+            .get_or_insert_with(Vec::new)
+            .push(SecurityRequirement::new(BEARER, Vec::<String>::new()));
+    }
+}
 
 
 pub fn build_router(state: AppState) -> Router {

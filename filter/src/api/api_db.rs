@@ -22,7 +22,7 @@ use shared::types::routing::filter::db::FilterRequestDeleteQueryPruneRecords;
     get,
     path = "/db/health",
     params(
-        ("token" = String, Query, description = "Authentication token"),
+        // ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK"),
@@ -59,7 +59,7 @@ pub async fn get_db_health(
     get,
     path = "/db/stats",
     params(
-        ("token" = String, Query, description = "Authentication token"),
+        // ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK"),
@@ -100,7 +100,7 @@ pub async fn get_db_stats(
     delete,
     path = "/db/clear",
     params(
-        ("token" = String, Query, description = "Authentication token"),
+        // ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK"),
@@ -147,7 +147,7 @@ pub async fn delete_clear_db(
     delete,
     path = "/db/prune/records",
     params(
-        ("token" = String, Query, description = "Authentication token"),
+        // ("token" = String, Query, description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK"),

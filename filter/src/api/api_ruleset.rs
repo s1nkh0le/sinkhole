@@ -28,7 +28,7 @@ use shared::types::ruleset_types::RuleSetRaw;
     get,
     path = "/ports/{port}/ruleset",
     params(
-        ("token" = String, Query,                                   description = "Authentication token"),
+        // ("token" = String, Query,                                   description = "Authentication token"),
         ("port" = u16, Path,                                        description = "Public port"),
     ),
     responses(
@@ -68,12 +68,12 @@ pub async fn get_ruleset(
 
 /// /ports/{port}/ruleset
 ///
-/// Takes a `RuleSetRaw`, validates it, and if everything checks out, applies it to the
+/// Takes a `RuleSetRaw`, validates it, and if everything checks out, applies it to the port runtime
 #[utoipa::path(
     put,
     path = "/ports/{port}/ruleset",
     params(
-        ("token" = String, Query,                                   description = "Authentication token"),
+        // ("token" = String, Query,                                   description = "Authentication token"),
         ("port" = u16, Path,                                        description = "Public port"),
     ),
     responses(
@@ -191,11 +191,15 @@ pub async fn put_ruleset(
 
 
 
+/// /ports/{port}/ruleset/validate
+///
+/// Takes a `RuleSetRaw`, validates it, and returns the validation output, withouth changing the runtime configuration.
+/// Useful for dry-runs / pre-validation
 #[utoipa::path(
     put,
     path = "/ports/{port}/ruleset/validate",
     params(
-        ("token" = String, Query,                               description = "Authentication token"),
+        // ("token" = String, Query,                               description = "Authentication token"),
         ("port" = u16, Path,                                    description = "Public port"),
     ),
     responses(

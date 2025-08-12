@@ -62,7 +62,7 @@ pub struct CtrlReplyPort {
     get,
     path = "/state",
     params(
-        ("ctrl_token" = String, Query,                              description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                              description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK",                          body = OkEnvelope<CtrlReplyBodyState>),

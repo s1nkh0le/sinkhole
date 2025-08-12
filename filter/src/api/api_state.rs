@@ -13,7 +13,7 @@ use shared::types::routing::filter::state::FilterStateOkData;
     get,
     path = "/fetch",
     params(
-        ("token" = String, Query, description = "Authentication token"),
+        // ("token" = String, Query, description = "Authentication token"),
         ("port" = u16, Path, description = "Public port"),
     ),
     responses(

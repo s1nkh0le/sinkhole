@@ -9,7 +9,9 @@ use crate::db::commands::DbHandle;
 use crate::{config::Config, registry::PortRegistry};
 use axum::{Router, routing::get, middleware};
 use axum::routing::{delete, put};
-use utoipa::OpenApi;
+use utoipa::{Modify, OpenApi};
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::openapi::SecurityRequirement;
 use utoipa_swagger_ui::SwaggerUi;
 use crate::api::api_state::get_state;
 use crate::api::middleware_auth::require_token;
@@ -51,6 +53,7 @@ pub type SharedState = (Config, PortRegistry, DbHandle);
 
 #[derive(OpenApi)]
 #[openapi(
+    modifiers(&FilterBearerAddon),
     paths(
         // global fetch
         get_health,
@@ -86,6 +89,30 @@ pub type SharedState = (Config, PortRegistry, DbHandle);
     )
 )]
 struct ApiDoc;
+
+struct FilterBearerAddon;
+
+impl Modify for FilterBearerAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        const BEARER: &'static str = "bearerAuth";
+        let components = openapi.components.get_or_insert_with(Default::default);
+        
+        components.add_security_scheme(
+            BEARER,
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("Token")
+                    .build(),
+            ),
+        );
+
+        openapi
+            .security
+            .get_or_insert_with(Vec::new)
+            .push(SecurityRequirement::new(BEARER, Vec::<String>::new()));
+    }
+}
 
 pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) -> Router {
     let protected = Router::new()

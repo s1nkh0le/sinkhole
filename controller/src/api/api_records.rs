@@ -421,7 +421,7 @@ pub struct CtrlRequestGetQueryRecordsAggregate {
     get,
     path = "/records",
     params(
-        ("ctrl_token" = String, Query,                          description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                          description = "Authentication token"),
     ),
     responses(
         (status = 200, description = "OK",                      body = OkEnvelope<CtrlReplyRecordsOkData>),
@@ -574,7 +574,7 @@ pub struct CtrlRequestGetQueryRecordsFromServicePort {
     get,
     path = "/services/{service_id}/ports/{port}/records",
     params(
-        ("ctrl_token" = String, Query,                          description = "Authentication token"),
+        // ("ctrl_token" = String, Query,                          description = "Authentication token"),
         ("service_id" = String, Path,                           description = "Service id"),
         ("port"       = u16,    Path,                           description = "Port number")
     ),

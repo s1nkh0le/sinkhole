@@ -22,7 +22,7 @@ use shared::types::routing::filter::records::{FilterReplyRecordsAndCursor, Filte
     get,
     path = "/ports/{port}/records",
     params(
-        ("token" = String, Query,                               description = "Authentication token"),
+        // ("token" = String, Query,                               description = "Authentication token"),
         ("port" = u16, Path,                                    description = "Public port"),
     ),
     responses(

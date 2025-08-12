@@ -82,15 +82,15 @@ async fn quick_ping(http: &Client, base: &str, token: &str) -> Result<(), String
     put,
     path = "/services/new",
     params(
-        ("ctrl_token" = String, Query, description = "Authentication token")
+        // ("ctrl_token" = String, Query,                                          description = "Authentication token")
     ),
     request_body = CtrlServiceAddRequest,
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<CtrlServiceAddOkData>),
-        (status = 400, description = "Invalid service config", body = ErrorEnvelope),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
-        (status = 409, description = "Service already exists", body = ErrorEnvelope),
-        (status = 502, description = "Filter unreachable", body = ErrorEnvelope),
+        (status = 200, description = "OK",                                      body = OkEnvelope<CtrlServiceAddOkData>),
+        (status = 400, description = "Invalid service config",                  body = ErrorEnvelope),
+        (status = 401, description = "Unauthorized",                            body = ErrorEnvelope),
+        (status = 409, description = "Service already exists",                  body = ErrorEnvelope),
+        (status = 502, description = "Filter unreachable",                      body = ErrorEnvelope),
     ),
     tags = ["controller","services"]
 )]
@@ -173,14 +173,14 @@ pub async fn put_service_supervisor_new(
     delete,
     path = "/services/{service_id}/delete",
     params(
-        ("ctrl_token" = String, Query, description = "Authentication token"),
-        ("service_id" = String, Path, description = "Service id"),
+        // ("ctrl_token" = String, Query,                              description = "Authentication token"),
+        ("service_id" = String, Path,                               description = "Service id"),
     ),
     responses(
-        (status = 200, description = "OK", body = OkEnvelope<CtrlServiceDeleteOkData>),
-        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
-        (status = 404, description = "Unknown service", body = ErrorEnvelope),
-        (status = 500, description = "Server error", body = ErrorEnvelope),
+        (status = 200, description = "OK",                          body = OkEnvelope<CtrlServiceDeleteOkData>),
+        (status = 401, description = "Unauthorized",                body = ErrorEnvelope),
+        (status = 404, description = "Unknown service",             body = ErrorEnvelope),
+        (status = 500, description = "Server error",                body = ErrorEnvelope),
     ),
     tags = ["controller", "services"]
 )]
