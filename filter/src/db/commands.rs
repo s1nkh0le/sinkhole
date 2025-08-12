@@ -10,11 +10,11 @@ use crate::db::query_insert::{save_config_row, save_ruleset_row};
 
 #[derive(Clone)]
 pub struct DbHandle {
-    pub(crate) tx: mpsc::Sender<DbCmd>,
+    pub(crate) tx: mpsc::Sender<FilterDbCmd>,
     pub path: Arc<String>,
 }
 
-pub enum DbCmd {
+pub enum FilterDbCmd {
     InsertRecord(EvaluationRecord),
     SaveRuleset {
         port: u16,
@@ -39,7 +39,7 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
     }
 
     // spawn actor
-    let (tx, mut rx) = mpsc::channel::<DbCmd>(20_000);
+    let (tx, mut rx) = mpsc::channel::<FilterDbCmd>(20_000);
     let db_path = path.to_string();
     let db_path_clone = db_path.clone();
 
@@ -54,7 +54,7 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
             tokio::select! {
                 Some(cmd) = rx.recv() => {
                     match cmd {
-                        DbCmd::InsertRecord(rec) => {
+                        FilterDbCmd::InsertRecord(rec) => {
                             rec_buf.push(rec);
                             if rec_buf.len() >= 512 {
                                 if let Err(e) = flush_records(&mut conn, &mut rec_buf) {
@@ -67,7 +67,7 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                                 }
                             }
                         }
-                        DbCmd::SaveRuleset { port, version, json, ts_ns } => {
+                        FilterDbCmd::SaveRuleset { port, version, json, ts_ns } => {
                             if let Err(e) = save_ruleset_row(&mut conn, port, &version, &json, ts_ns) {
                                 sink_ecam::record(
                                     Severity::Error,
@@ -77,7 +77,7 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                                 );
                             }
                         }
-                        DbCmd::SaveConfig { external_port, upstream_port, json, ts_ns } => {
+                        FilterDbCmd::SaveConfig { external_port, upstream_port, json, ts_ns } => {
                             if let Err(e) = save_config_row(&mut conn, external_port, upstream_port, &json, ts_ns) {
                                 sink_ecam::record(
                                     Severity::Error,
@@ -87,7 +87,7 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                                 );
                             }
                         }
-                        DbCmd::Shutdown => {
+                        FilterDbCmd::Shutdown => {
                             let _ = flush_records(&mut conn, &mut rec_buf);
                             info!("DB actor shutdown");
                             break;

@@ -7,10 +7,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use crate::config::env::ServiceCfg;
 use crate::{
-    db::DbHandle,
     state::ctrl::{ControllerState, Service, ServiceCursors},
     state::health::Health,
 };
+use crate::db::commands::DbHandle;
 
 /// A running set of tasks for one service (health, state, ecam, records)
 struct ServiceTasks {

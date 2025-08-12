@@ -5,7 +5,7 @@ use crate::api::api_health::{get_health, get_version, get_teapot};
 use crate::api::api_records::get_records;
 use crate::api::api_ruleset::{put_ruleset_validate, get_ruleset, put_ruleset};
 use crate::api::api_stats::get_port_stats;
-use crate::db::actor::DbHandle;
+use crate::db::commands::DbHandle;
 use crate::{config::Config, registry::PortRegistry};
 use axum::{Router, routing::get, middleware};
 use axum::routing::{delete, put};

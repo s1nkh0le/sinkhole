@@ -1,5 +1,5 @@
 use crate::api::routes_filter::SharedState;
-use crate::db::actor::DbCmd;
+use crate::db::commands::FilterDbCmd;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use axum::Json;
@@ -195,7 +195,7 @@ pub async fn put_config(
         "enabled_scopes": info.enabled_scopes
     }).to_string();
 
-    let _ = db.tx.try_send(DbCmd::SaveConfig {
+    let _ = db.tx.try_send(FilterDbCmd::SaveConfig {
         external_port: port,
         upstream_port: info.upstream,
         json: config_raw_json,

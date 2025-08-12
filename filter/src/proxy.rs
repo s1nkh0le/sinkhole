@@ -1,5 +1,3 @@
-//! Bidirectional TCP proxy with rule evaluation.
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,7 +6,7 @@ use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use crate::observability::sinks::{sink_ecam, sink_telemetry};
 use crate::{
     config::{Config, PortBinding},
-    engine::dispatcher::{MessageCtx, evaluate as eval_rules},
+    engine::dispatcher::{MessageCtx, evaluate},
     http::parse_http,
     registry::{PortRegistry, PortRuntime},
 };
@@ -261,7 +259,8 @@ where
             last_msg_ns = conn_now_ns;
 
             let compiled = port_rt.compiled.load();
-            let (decision, rec) = eval_rules(&compiled, &port_rt, &msg_ctx, debug);
+            let early_stop = false; // debug
+            let (decision, rec) = evaluate(&compiled, &port_rt, &msg_ctx, early_stop);
 
             sink_telemetry::record(&rec);
 

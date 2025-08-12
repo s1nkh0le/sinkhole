@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::db::actor::DbHandle;
+use crate::db::commands::DbHandle;
 use std::sync::atomic::AtomicBool;
 
 pub mod sink_ecam;

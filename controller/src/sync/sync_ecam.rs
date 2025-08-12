@@ -1,7 +1,6 @@
 // controller/src/sync/data_pull.rs
 
 use crate::db::insertion::insert_ecam;
-use crate::db::DbHandle;
 use crate::state::ctrl::{ControllerState, Service};
 use crate::state::health::HealthLayer;
 use std::time::Duration;
@@ -9,6 +8,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
+use crate::db::commands::DbHandle;
 use crate::fetch::fetch_ecam::fetch_ecam;
 
 const TICK: Duration = Duration::from_millis(200);

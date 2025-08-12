@@ -1,6 +1,5 @@
 use crate::config::env::{ControllerCfg, ServiceCfg};
 use crate::db::boot::{read_boot_cursors, BootCursors};
-use crate::db::DbHandle;
 use crate::state::health::Health;
 use parking_lot::RwLock;
 use reqwest::Client;
@@ -9,6 +8,7 @@ use shared::types::snapshot_types::PortSnapshot;
 use std::collections::HashMap;
 use std::sync::Arc;
 use utoipa::ToSchema;
+use crate::db::commands::DbHandle;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Port {

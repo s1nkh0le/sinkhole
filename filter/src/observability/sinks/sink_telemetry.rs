@@ -1,4 +1,4 @@
-use crate::db::actor::{DbCmd, DbHandle};
+use crate::db::commands::{FilterDbCmd, DbHandle};
 use crate::observability::sinks;
 use once_cell::sync::OnceCell;
 use shared::types::record_types::EvaluationRecord;
@@ -11,7 +11,7 @@ pub fn init_db_sink(handle: DbHandle) {
 
 fn push_to_db(rec: &EvaluationRecord) {
     if let Some(db) = DB_SINK.get() {
-        let _ = db.tx.try_send(DbCmd::InsertRecord(rec.clone()));
+        let _ = db.tx.try_send(FilterDbCmd::InsertRecord(rec.clone()));
     }
 }
 

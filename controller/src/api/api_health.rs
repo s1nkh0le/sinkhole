@@ -37,8 +37,6 @@ pub async fn get_health(
 
 
 // ─────────────────────────── /services ─────────────────────────
-
-
 #[derive(Serialize, ToSchema)]
 pub struct ServiceSummary {
     pub id: String,

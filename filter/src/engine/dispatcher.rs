@@ -15,6 +15,7 @@ use shared::utils::time::now_ns;
 use crate::registry::PortRuntime;
 
 pub struct MessageCtx<'a> {
+    // TODO turn into UUID for consistency across filters and easier queries in db
     pub conn_id: u64,
     pub seq: u64,
     pub inbound: bool,
@@ -34,33 +35,34 @@ pub struct MessageCtx<'a> {
 /// Main entry: evaluate all rules, return (Decision, EvaluationRecord)
 pub fn evaluate(
     compiled: &Arc<CompiledRuleSet>,
-    port_rt: &Arc<PortRuntime>,
-    msg: &MessageCtx,
-    debug: bool,
+    port_runtime: &Arc<PortRuntime>,
+    ctx: &MessageCtx,
+    // Stop evaluation as soon as a drop is triggered; doesn't finish evaluating drop_reasons
+    early_stop: bool,
 ) -> (Decision, EvaluationRecord) {
     // ----------------------------------------------------------------
     // Phase 1 – markers
     // ----------------------------------------------------------------
-    let dir = if msg.inbound {
+    let dir = if ctx.inbound {
         Direction::Inbound
     } else {
         Direction::Outbound
     };
 
     let mut details = Vec::<EvaluationDetail>::new();
-    let mut verified: HashSet<&str> = HashSet::new();
+    let mut verified_markers: HashSet<&str> = HashSet::new();
 
     for m in &compiled.markers {
         if !m.enabled || !m.direction.matches(dir) {
             continue;
         }
 
-        let input = build_match_input(msg, m.scope);
+        let input = build_match_input(ctx, m.scope);
         let out = m.matcher.evaluate(&input);
 
         match out.status {
             MatchStatus::Satisfied => {
-                verified.insert(&m.id);
+                verified_markers.insert(&m.id);
             }
             MatchStatus::NotSatisfied => {}
             MatchStatus::Skipped => {}
@@ -77,7 +79,7 @@ pub fn evaluate(
             None,
         ));
 
-        if debug {
+        if early_stop {
             // keep evaluating all; nothing to short‑circuit for markers
         }
     }
@@ -99,9 +101,9 @@ pub fn evaluate(
         }
 
         // gating ------------------------------------------------------------
-        let gated = f.needed_all.iter().all(|id| verified.contains(id.as_str()))
+        let gated = f.needed_all.iter().all(|id| verified_markers.contains(id.as_str()))
             && (f.needed_any.is_empty()
-                || f.needed_any.iter().any(|id| verified.contains(id.as_str())));
+                || f.needed_any.iter().any(|id| verified_markers.contains(id.as_str())));
 
         if !gated {
             details.push(build_detail(
@@ -124,7 +126,7 @@ pub fn evaluate(
         }
 
         // evaluate matcher ---------------------------------------------------
-        let input = build_match_input(msg, f.scope);
+        let input = build_match_input(ctx, f.scope);
         let out = f.matcher.evaluate(&input);
 
         // account hits
@@ -159,7 +161,7 @@ pub fn evaluate(
         ));
 
         // early stop on first blacklist in normal mode
-        if !debug && !blacklist_hits.is_empty() {
+        if !early_stop && !blacklist_hits.is_empty() {
             break 'filters;
         }
     }
@@ -203,7 +205,7 @@ pub fn evaluate(
     // ----------------------------------------------------------------
     // Build EvaluationRecord
     // ----------------------------------------------------------------
-    let http_info = msg.http.map(|h| HttpInfo {
+    let http_info = ctx.http.map(|h| HttpInfo {
         method: h.method.clone(),
         path: h.path.clone(),
         status: h.status,
@@ -215,20 +217,21 @@ pub fn evaluate(
 
     let record = EvaluationRecord {
         timestamp_ns: now_ns(),
-        conn_id: msg.conn_id,
-        message_seq: msg.seq,
-        inbound: msg.inbound,
-        public_port: msg.public_port,
-        upstream_port: msg.upstream_port,
+        conn_id: ctx.conn_id,
+        message_seq: ctx.seq,
+        inbound: ctx.inbound,
+        public_port: ctx.public_port,
+        upstream_port: ctx.upstream_port,
+        markers: verified_markers.iter().map(|s| s.to_string()).collect(),
         decision,
         drop_reasons,
         http: http_info,
-        raw_b64: base64::engine::general_purpose::STANDARD.encode(msg.raw),
+        raw_b64: base64::engine::general_purpose::STANDARD.encode(ctx.raw),
         details,
-        src_ip: msg.src_ip.to_owned(),
-        src_port: msg.src_port,
+        src_ip: ctx.src_ip.to_owned(),
+        src_port: ctx.src_port,
         dst_ip: "0.0.0.0".into(),
-        dst_port: msg.public_port,
+        dst_port: ctx.public_port,
     };
 
     (decision, record)

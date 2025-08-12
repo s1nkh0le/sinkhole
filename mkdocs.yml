@@ -10,11 +10,9 @@ theme:
   name: material
   language: en
 
-
   icon:
     repo: fontawesome/brands/github
     annotation: material/plus-circle
-
 
   logo: assets/icons/default/icon-512.png
   favicon: assets/icons/default/favicon.ico
@@ -24,12 +22,11 @@ theme:
     - navigation.instant.progress
     - content.code.annotate
     # - content.tabs.link
-    # - navigation.tracking
-    # - navigation.sections
     - navigation.tabs
+    - navigation.tracking
+    # - navigation.sections
     # - navigation.expand
     # - navigation.tabs.sticky
-    # - navigation.tracking
     - search.highlight
     - search.share
     - search.suggest
@@ -37,15 +34,15 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: black
-      accent: custom
+      primary: white
+      accent: cyan
       toggle:
         icon: material/lightbulb-outline
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: black
-      accent: custom
+      accent: cyan
       toggle:
         icon: material/lightbulb
         name: Switch to light mode
@@ -91,10 +88,9 @@ markdown_extensions:
       permalink: true
 
 
-
-
 extra_css:
   - assets/css/app.css
+  - assets/css/icons.css
   - assets/css/extra.css
 
 extra_javascript:
@@ -104,3 +100,7 @@ extra_javascript:
   - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
 
 
+
+nav:
+  - Index:
+      - 'Overview': index.md

@@ -1,7 +1,6 @@
 // controller/src/sync/data_pull.rs
 
 use crate::db::insertion::{insert_ecam, insert_records};
-use crate::db::DbHandle;
 use crate::fetch::fetch_records::{fetch_records};
 use crate::state::ctrl::{ControllerState, Service};
 use crate::state::health::HealthLayer;
@@ -11,6 +10,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{sleep, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
+use crate::db::commands::DbHandle;
 
 // Small tick so we can react quickly to cancel/backoff/cadence gates
 const TICK: Duration = Duration::from_millis(200);

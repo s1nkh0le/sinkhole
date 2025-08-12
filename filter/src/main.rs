@@ -1,4 +1,4 @@
-use crate::db::actor::{DbCmd, init_db};
+use crate::db::commands::{FilterDbCmd, init_db};
 use crate::db::query_hydration::hydrate_registry;
 use crate::observability::summary::dump_port_state;
 use crate::proxy::run_all_ports;
@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
     let shutdown = async move {
         signal::ctrl_c().await.expect("install ctrl+c handler");
         info!("CTRL+C received, shutting down…");
-        let _ = db_for_shutdown.tx.send(DbCmd::Shutdown).await;
+        let _ = db_for_shutdown.tx.send(FilterDbCmd::Shutdown).await;
     };
 
     // server

@@ -1,6 +1,6 @@
 use crate::api::middleware_auth;
 use crate::api::routes_filter::SharedState;
-use crate::db::actor::DbCmd;
+use crate::db::commands::FilterDbCmd;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use crate::observability::summary::dump_port_state;
@@ -170,7 +170,7 @@ pub async fn put_ruleset(
     dump_port_state(&*pr);
 
     // Save config to db
-    let _ = db.tx.try_send(DbCmd::SaveRuleset {
+    let _ = db.tx.try_send(FilterDbCmd::SaveRuleset {
         port,
         version: ver_ruleset.clone(),
         json: validated_ruleset_raw_json,

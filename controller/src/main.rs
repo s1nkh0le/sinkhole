@@ -8,6 +8,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use config::env;
 use state::ctrl;
 use supervisor::app_state::AppState;
+use crate::db::commands::CtrlDbCmd;
 use crate::state::ctrl::ControllerState;
 use crate::supervisor::supervisor::Supervisor;
 
@@ -28,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Config + state
     let cfg   = env::load()?;
-    let db    = db::init(&cfg.controller.db_path)?;
+    let db    = db::commands::init(&cfg.controller.db_path)?;
     let http  = reqwest::Client::new();
     let state = ControllerState::new(cfg.clone(), db.clone(), http.clone())?;
 
@@ -63,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         tracing::info!("shutdown signal received, shutting down…");
-        let _ = db_for_shutdown.tx.send(db::Cmd::Shutdown).await;
+        let _ = db_for_shutdown.tx.send(CtrlDbCmd::Shutdown).await;
     };
 
     axum::serve(listener, app)

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use crate::types::base_types::{Decision, MatchStatus, Scope};
@@ -77,9 +78,11 @@ pub struct EvaluationRecord {
     pub public_port: u16,
     pub upstream_port: u16,
     /// Allow | Drop
+    pub markers: Vec<String>,
     pub decision: Decision,
     pub drop_reasons: Vec<DropReason>,
     pub http: Option<HttpInfo>,
+    // TODO store as raw bytes
     pub raw_b64: String,
     pub details: Vec<EvaluationDetail>,
     // meta
