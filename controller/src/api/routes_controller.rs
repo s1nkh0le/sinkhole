@@ -8,6 +8,7 @@ use crate::api::api_service_meta::get_service_meta;
 use crate::api::api_service_meta::put_service_meta;
 use crate::api::api_state::get_state;
 use crate::api::middleware_auth::require_ctrl_token;
+use crate::api::api_records_grouped::get_grouped_records;
 use axum::routing::{delete, put};
 use axum::{middleware, routing::get, Router};
 use utoipa::{Modify, OpenApi};
@@ -28,6 +29,7 @@ use crate::api::api_ecam::__path_get_service_ecam;
 
 
 /// records
+use crate::api::api_records_grouped::__path_get_grouped_records;
 use crate::api::api_records::__path_get_aggregated_records;
 use crate::api::api_records::__path_get_service_port_records;
 
@@ -67,6 +69,7 @@ use crate::supervisor::app_state::AppState;
         // records
         get_aggregated_records,
         get_service_port_records,
+        get_grouped_records,
 
         // service
         put_service_supervisor_new, delete_service_supervisor,
@@ -130,6 +133,7 @@ pub fn build_router(state: AppState) -> Router {
         // records
         .route("/records", get(get_aggregated_records))
         .route("/services/{svc}/ports/{port}/records", get(get_service_port_records))
+        .route("/records/grouped", get(get_grouped_records))
 
         // service
         .route("/services/new", put(put_service_supervisor_new))

@@ -9,4 +9,5 @@ pub mod util;
 pub mod api_ecam;
 mod fetchers;
 mod api_service_meta;
-mod api_service;
+pub mod api_service;
+pub mod api_records_grouped;

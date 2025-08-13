@@ -1,8 +1,15 @@
-use rusqlite::params;
+use std::path::Path;
+use rusqlite::{params, Connection};
 use shared::types::base_types::Decision;
 use shared::types::ecam_types::EcamEvent;
 use shared::types::record_types::{DropReason, EvaluationRecord};
 use rusqlite::Transaction;
+
+
+pub fn open(path: &str) -> anyhow::Result<Connection> {
+    let conn = Connection::open(Path::new(path))?;
+    Ok(conn)
+}
 
 /// Slim row emitted for every atomic drop reason item we want to index.
 struct DropReasonItemRow {

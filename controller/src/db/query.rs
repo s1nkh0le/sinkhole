@@ -3,11 +3,7 @@ use rusqlite::{params, Connection};
 use shared::types::record_types::EvaluationRecord;
 use shared::types::ecam_types::EcamEvent;
 use std::path::Path;
-
-fn open(path: &str) -> Result<Connection> {
-    let conn = Connection::open(Path::new(path))?;
-    Ok(conn)
-}
+use crate::db::util::open;
 
 /// Load ECAM events across services (optional filter by service_id)
 pub fn load_ecam_agg(
@@ -86,7 +82,7 @@ pub fn load_records_agg_advanced(
     drop_kind: Option<&str>,
     drop_item_type: Option<&str>,
     drop_value: Option<&str>,
-) -> anyhow::Result<(Vec<EvaluationRecord>, i64)> {
+) -> Result<(Vec<EvaluationRecord>, i64)> {
     let conn = open(db_path)?;
 
     let need_to_join_dropreason =
