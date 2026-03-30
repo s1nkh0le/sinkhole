@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SINKHOLE // WAF Control Panel</title>
+  <link rel="stylesheet" href="css/theme.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- ======================== SIDEBAR ======================== -->
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <span class="glyph">⬡</span>
+          <span>SINKHOLE</span>
+        </div>
+        <div class="sidebar-subtitle">WAF CONTROL PANEL</div>
+      </div>
+
+      <div class="sidebar-body">
+        <!-- Connection config -->
+        <div class="sidebar-section-label">Controller</div>
+        <div style="padding:4px 12px">
+          <input class="input" id="ctrl-url" placeholder="http://host:7000"
+                 style="font-size:.72rem;padding:5px 8px;margin-bottom:4px">
+          <button class="btn btn-sm w-full" id="ctrl-save" style="justify-content:center">Connect</button>
+        </div>
+
+        <!-- Navigation -->
+        <div class="sidebar-section-label" style="margin-top:12px">Navigation</div>
+        <div class="sidebar-item active" id="nav-dashboard">
+          <span style="opacity:.6">⬡</span>
+          <span>Dashboard</span>
+        </div>
+
+        <div class="sidebar-section-label">Filters</div>
+        <div id="sidebar-filters"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="theme-toggle" id="theme-btn">☀ Light</button>
+        <span class="text-sm text-muted">v1.0</span>
+      </div>
+    </nav>
+
+    <!-- ======================== MAIN ======================== -->
+    <main class="main-content" id="main-content">
+      <div class="text-muted" style="padding:40px;text-align:center">
+        <div style="font-size:2rem;color:var(--accent);margin-bottom:8px">⬡</div>
+        Loading...
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
