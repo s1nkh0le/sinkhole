@@ -1,12 +1,10 @@
 use crate::observability::sinks;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 pub(crate) use shared::sink_model::{EcamEvent, Origin, Severity};
 use shared::utils::time::now_ns;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
-use strum_macros::Display;
 use tracing::error;
 use tracing::warn;
 

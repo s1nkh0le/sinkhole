@@ -1,5 +1,6 @@
 use super::{MatchInput, MatchOutputCore, Matcher, regex_core::RegexCore};
 use shared::types::Scope;
+use std::str;
 
 pub struct BodyRegex {
     core: RegexCore,

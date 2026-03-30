@@ -18,6 +18,7 @@ mod observability;
 mod proxy;
 mod registry;
 mod rules;
+mod tls;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -59,11 +60,31 @@ async fn main() -> Result<()> {
     // Init sinks
     sinks::init_all(&cfg, db_handle.clone());
 
+    // Build TLS state if enabled
+    let tls_state: Option<std::sync::Arc<proxy::TlsState>> = if cfg.tls_enabled {
+        let cert = cfg.tls_cert_path.as_deref().expect("TLS_CERT_PATH validated");
+        let key = cfg.tls_key_path.as_deref().expect("TLS_KEY_PATH validated");
+        let acceptor = tls::build_acceptor(cert, key)?;
+        let connector = if cfg.tls_upstream {
+            Some(tls::build_connector(cfg.tls_skip_verify)?)
+        } else {
+            None
+        };
+        info!("TLS enabled: accepting client TLS, upstream_tls={}, skip_verify={}", cfg.tls_upstream, cfg.tls_skip_verify);
+        Some(std::sync::Arc::new(proxy::TlsState {
+            acceptor,
+            upstream_connector: connector,
+            upstream_host: cfg.upstream_host.clone(),
+        }))
+    } else {
+        None
+    };
+
     // spawn proxies
     let proxy_cfg = cfg.clone();
     let reg_clone = registry.clone();
     let proxy_handle = tokio::spawn(async move {
-        if let Err(e) = run_all_ports(proxy_cfg, reg_clone).await {
+        if let Err(e) = run_all_ports(proxy_cfg, reg_clone, tls_state).await {
             error!(error=?e, "proxy listeners exited with error");
         }
     });

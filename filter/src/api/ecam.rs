@@ -43,21 +43,16 @@ pub async fn get_ecam(
     // sort ascending
     events.sort_by_key(|e| e.ts_ns);
 
-    // print
-    debug!("[GET /ecam, get_ecam()]: got {} ecam events: {:?}", events.clone().len(), events.clone());
+    debug!("[GET /ecam, get_ecam()]: got {} ecam events", events.len());
 
-    // compute next_since = (max + 1)  or stick to caller’s since_ns
+    // compute next_since = (max + 1)  or stick to caller's since_ns
     let next_since = events.last().map(|e| e.ts_ns + 1).unwrap_or(since_ns);
-
-    // we need the events to live long enough for the Json body.
-    //   Box::leak makes a &'static [EcamEvent]; cheap because we immediately drop the Box after response is built
-    let leaked: &'static [EcamEvent] = Box::leak(events.into_boxed_slice());
 
     (
         StatusCode::OK,
         Json(json!({
             "status": "ok",
-            "data": leaked,
+            "data": events,
             "next_since": next_since
         })),
     )

@@ -3,7 +3,7 @@ use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fmt, net::SocketAddr, str::FromStr};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 const DEFAULT_CTRL_PORT: u16 = 7000;
 const DEFAULT_BODY_LIMIT: usize = 1_048_576; // 1MB
@@ -55,6 +55,26 @@ struct RawConfig {
     pub sinks_stdout: Option<bool>,
     #[serde(default)]
     pub sinks_emit: Option<bool>,
+
+    /// TLS_ENABLED = true/false  (terminate TLS on the proxy)
+    #[serde(default)]
+    pub tls_enabled: bool,
+
+    /// TLS_CERT_PATH – PEM certificate chain file
+    #[serde(default)]
+    pub tls_cert_path: Option<String>,
+
+    /// TLS_KEY_PATH – PEM private key file
+    #[serde(default)]
+    pub tls_key_path: Option<String>,
+
+    /// TLS_UPSTREAM = true/false – re-encrypt to upstream over TLS (default false)
+    #[serde(default)]
+    pub tls_upstream: bool,
+
+    /// TLS_SKIP_VERIFY = true/false – skip upstream TLS cert verification (default true)
+    #[serde(default = "default_true")]
+    pub tls_skip_verify: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -69,6 +89,11 @@ pub struct Config {
     pub db_path: String,
     pub sinks_stdout: bool,
     pub sinks_emit: bool,
+    pub tls_enabled: bool,
+    pub tls_cert_path: Option<String>,
+    pub tls_key_path: Option<String>,
+    pub tls_upstream: bool,
+    pub tls_skip_verify: bool,
 }
 
 impl Config {
@@ -82,6 +107,9 @@ fn default_ctrl_port() -> u16 {
 }
 fn default_db_path() -> String {
     "sinkhole.db".into()
+}
+fn default_true() -> bool {
+    true
 }
 
 const ENV_PREFIX: &'static str = "SINKHOLE_FILTER_";
@@ -148,6 +176,38 @@ pub fn load() -> Result<Config> {
         errs.push(format!("{}_BODY_LIMIT_BYTES must be > 0", ENV_PREFIX));
     }
 
+    // TLS validation
+    if raw.tls_enabled {
+        if raw.tls_cert_path.is_none() {
+            errs.push(format!(
+                "{}_TLS_CERT_PATH is required when TLS is enabled",
+                ENV_PREFIX
+            ));
+        } else {
+            let p = raw.tls_cert_path.as_ref().unwrap();
+            if !std::path::Path::new(p).exists() {
+                errs.push(format!(
+                    "{}_TLS_CERT_PATH '{}' does not exist",
+                    ENV_PREFIX, p
+                ));
+            }
+        }
+        if raw.tls_key_path.is_none() {
+            errs.push(format!(
+                "{}_TLS_KEY_PATH is required when TLS is enabled",
+                ENV_PREFIX
+            ));
+        } else {
+            let p = raw.tls_key_path.as_ref().unwrap();
+            if !std::path::Path::new(p).exists() {
+                errs.push(format!(
+                    "{}_TLS_KEY_PATH '{}' does not exist",
+                    ENV_PREFIX, p
+                ));
+            }
+        }
+    }
+
     if !errs.is_empty() {
         let joined = errs.join("; ");
 
@@ -188,6 +248,11 @@ pub fn load() -> Result<Config> {
         db_path: raw.db_path,
         sinks_stdout: raw.sinks_stdout.unwrap_or(true),
         sinks_emit: raw.sinks_emit.unwrap_or(true),
+        tls_enabled: raw.tls_enabled,
+        tls_cert_path: raw.tls_cert_path,
+        tls_key_path: raw.tls_key_path,
+        tls_upstream: raw.tls_upstream,
+        tls_skip_verify: raw.tls_skip_verify,
     })
 }
 

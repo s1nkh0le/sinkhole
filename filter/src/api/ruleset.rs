@@ -13,7 +13,7 @@ use serde_json::json;
 use shared::utils::time::now_ns;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::info;
 
 ///     API: `GET /ports/{port}/ruleset`
 ///     method: `get_ruleset`
@@ -93,7 +93,7 @@ pub async fn put_ruleset(
             Severity::Warn,
             Origin::API,
             format!(
-                "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | ruleset validation failed, error=s{}",
+                "[PUT /ports/{port}/ruleset, put_ruleset()]: rejecting rules | ruleset validation failed, errors={}",
                 errs.join(", ")
             ),
             None,

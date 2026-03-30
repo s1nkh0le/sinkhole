@@ -109,10 +109,11 @@ fn compile_filter(f: &FilterDef) -> Result<CompiledFilter> {
 fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>, MatcherMeta)> {
     use MatcherDef::*;
     match def {
-        StreamRegex { pattern, .. } => Ok((
+        StreamRegex { pattern, case_sensitive } => Ok((
             Arc::new(crate::matcher::stream_regex::StreamRegex::new(
-                pattern, false,
+                pattern, *case_sensitive,
             )?),
+
             MatcherMeta {
                 comparator: "regex".into(),
                 target: "stream".into(),
@@ -122,13 +123,14 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
         HeaderRegex {
             header_name,
             pattern,
-            ..
+            case_sensitive,
         } => Ok((
             Arc::new(crate::matcher::header_regex::HeaderRegex::new(
                 header_name,
                 pattern,
-                false,
+                *case_sensitive,
             )?),
+
             MatcherMeta {
                 comparator: "regex".into(),
                 target: format!("header:{}", header_name.to_ascii_lowercase()),
@@ -182,16 +184,18 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 },
             ))
         }
-        PathRegex { pattern, .. } => Ok((
-            Arc::new(crate::matcher::path_regex::PathRegex::new(pattern, false)?),
+        PathRegex { pattern, case_sensitive } => Ok((
+            Arc::new(crate::matcher::path_regex::PathRegex::new(pattern, *case_sensitive)?),
+
             MatcherMeta {
                 comparator: "regex".into(),
                 target: "path".into(),
                 condition: format!("regex /{}/", pattern),
             },
         )),
-        BodyRegex { pattern, .. } => Ok((
-            Arc::new(crate::matcher::body_regex::BodyRegex::new(pattern, false)?),
+        BodyRegex { pattern, case_sensitive } => Ok((
+            Arc::new(crate::matcher::body_regex::BodyRegex::new(pattern, *case_sensitive)?),
+
             MatcherMeta {
                 comparator: "regex".into(),
                 target: "body".into(),

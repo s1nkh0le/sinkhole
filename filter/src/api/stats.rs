@@ -13,7 +13,7 @@ use std::collections::HashMap;
 pub async fn get_stats(
     Path(port): Path<u16>,
     Query(params): Query<HashMap<String, String>>,
-    State((cfg, registry, db)): State<SharedState>,
+    State((cfg, registry, _db)): State<SharedState>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     if let Err(e) = auth::check_token(params.get("token").map(String::as_str), &cfg) {
         return (

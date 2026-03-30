@@ -129,7 +129,7 @@ pub async fn get_logs(
     )
     .await
     {
-        Ok((mut records, _last_ts_from_db)) => {
+        Ok((records, _last_ts_from_db)) => {
             let next_since = records
                 .last()
                 .and_then(|r| r.get("timestamp_ns").and_then(|v| v.as_i64()))

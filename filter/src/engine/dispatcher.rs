@@ -34,7 +34,7 @@ pub struct MessageCtx<'a> {
 /// Main entry: evaluate all rules, return (Decision, EvaluationRecord)
 pub fn evaluate(
     compiled: &Arc<CompiledRuleSet>,
-    port_rt: &Arc<PortRuntime>,
+    _port_rt: &Arc<PortRuntime>,
     msg: &MessageCtx,
     debug: bool,
 ) -> (Decision, EvaluationRecord) {

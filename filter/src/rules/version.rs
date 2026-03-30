@@ -4,11 +4,11 @@ use shared::utils::hashes::sha256_hex;
 
 
 pub fn calc_version_config_only_no_ruleset(raw: &PortInfo) -> anyhow::Result<String> {
-    let mut name = raw.name.clone();
-    let mut hex_color = raw.hex_color.clone();
-    let mut comment = raw.comment.clone();
-    let mut public = raw.public.clone();
-    let mut upstream = raw.upstream.clone();
+    let name = raw.name.clone();
+    let hex_color = raw.hex_color.clone();
+    let comment = raw.comment.clone();
+    let public = raw.public.clone();
+    let upstream = raw.upstream.clone();
     let mut enabled_scopes = raw.enabled_scopes.clone();
     // We don't include version, as that only depends on ruleset
 

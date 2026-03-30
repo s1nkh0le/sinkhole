@@ -167,7 +167,6 @@ use tracing::log::{debug, info};
 use shared::eval_record::EvaluationRecord;
 use shared::sink_model::EcamEvent;
 use crate::db::insertion::{insert_ecam, insert_logs};
-use crate::observability::summary::dump_controller_state;
 
 #[derive(Deserialize)]
 struct FilterEcamEnvelope {

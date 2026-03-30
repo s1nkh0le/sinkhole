@@ -8,7 +8,6 @@ use tracing::log::{debug, info};
 use tracing::warn;
 use crate::state::{ControllerState};
 use shared::rules_model::{PortInfo, RuleSetRaw};
-use crate::observability::summary::dump_controller_state;
 
 const REQ_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -122,7 +121,7 @@ async fn state_sync_loop(
 
                 // 2) Fetch rulesets for ports that changed (bounded concurrency)
                 let mut tasks = Vec::with_capacity(to_refresh.len());
-                for (port, new_ver) in to_refresh {
+                for (port, _new_ver) in to_refresh {
                     let http = http.clone();
                     let base_url = base_url.clone();
                     let token = token.clone();

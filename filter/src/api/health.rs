@@ -1,7 +1,6 @@
-use crate::api::ecam::EcamRequest;
 use crate::api::routes::SharedState;
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use serde_json::json;
 
 ///     API: `GET /health`

@@ -7,12 +7,10 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::warn;
 use crate::{
-    db::query as dbq,
     state::ControllerState,
 };
 use shared::eval_record::{EvaluationRecord, DropReason};
 use shared::types::Decision;
-use crate::db::aggregate::{global_load_ecam, global_load_records_agg};
 use crate::db::query::{load_ecam_agg, load_records_agg};
 
 #[derive(Deserialize, Debug)]

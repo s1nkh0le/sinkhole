@@ -4,18 +4,19 @@ use regex::Regex;
 pub struct RegexCore {
     regex: Regex,
     pub original: String,
-    case_insensitive: bool,
+    case_sensitive: bool,
 }
 
 impl RegexCore {
-    pub fn new(pattern: &str, case_insensitive: bool) -> anyhow::Result<Self> {
+    /// `case_sensitive` mirrors the model field: false (default) means case‑insensitive matching.
+    pub fn new(pattern: &str, case_sensitive: bool) -> anyhow::Result<Self> {
         let regex = regex::RegexBuilder::new(pattern)
-            .case_insensitive(!case_insensitive) // default false ⇒ insensitive
+            .case_insensitive(!case_sensitive)
             .build()?;
         Ok(Self {
             regex,
             original: pattern.to_owned(),
-            case_insensitive,
+            case_sensitive,
         })
     }
 
@@ -27,7 +28,7 @@ impl RegexCore {
                 matched: Some(mat.as_str().to_string()),
                 numeric: None,
                 comment: Some(format!("matched @{}", mat.start())),
-                flags: if self.case_insensitive {
+                flags: if self.case_sensitive {
                     vec!["case_sensitive"]
                 } else {
                     vec!["case_insensitive"]
@@ -52,9 +53,13 @@ impl RegexCore {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() > max {
-        format!("{}…", &s[..max])
-    } else {
-        s.to_owned()
+    if s.len() <= max {
+        return s.to_owned();
     }
+    // Find a char boundary at or before `max` to avoid splitting a multi-byte character.
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
 }

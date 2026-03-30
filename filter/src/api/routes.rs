@@ -23,6 +23,6 @@ pub fn build_router(cfg: Config, registry: PortRegistry, db_handle: DbHandle) ->
         .route("/ports/{port}/logs", get(get_logs))
         .route("/db/health", get(db_health_ep))
         .route("/db/stats", get(db_stats_ep))
-        .route("/db/clear", get(db_clear_ep))
+        .route("/db/clear", axum::routing::post(db_clear_ep))
         .with_state((cfg, registry, db_handle))
 }

@@ -8,9 +8,8 @@ use crate::config::Config;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use anyhow::{Result, anyhow};
-use sha2::{Digest, Sha256};
 use shared::utils::hashes::sha256_hex;
-use tracing::{error, trace, warn};
+use tracing::trace;
 
 /// Verifies the token (SHA‑256 hex compare) against `AUTH_HASH`.
 /// Returns `Ok(())` when:
@@ -39,8 +38,8 @@ pub fn check_token(token_opt: Option<&str>, config: &Config) -> Result<()> {
             Severity::Error,
             Origin::Security,
             format!(
-                "authentication failed: bad token | calculated_hex={} != {}=expected_hex, token={}",
-                &calc_hex, expected_hex, token
+                "authentication failed: bad token | calculated_hex={} != {}=expected_hex",
+                &calc_hex, expected_hex
             ),
             None,
         );

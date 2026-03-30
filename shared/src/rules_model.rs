@@ -1,7 +1,7 @@
 use std::fmt;
 use crate::types::{Mode, RuleDirection, Scope};
 use serde::{Deserialize, Serialize};
-use strum_macros::Display;
+
 
 fn default_enabled() -> bool {
     true

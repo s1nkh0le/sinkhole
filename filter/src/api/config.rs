@@ -6,7 +6,7 @@ use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use shared::rules_model::PortInfo;
 use shared::types::Scope;

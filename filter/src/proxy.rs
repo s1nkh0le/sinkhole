@@ -1,4 +1,8 @@
 //! Bidirectional TCP proxy with rule evaluation.
+//!
+//! When `TLS_ENABLED=true` the proxy terminates TLS from clients, runs
+//! the rule engine on the decrypted traffic, and optionally re-encrypts
+//! to the upstream challenge.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -19,21 +23,40 @@ use shared::sink_model::NetworkOrigin::{ClientToFilter, Filter};
 use shared::types::Decision;
 use shared::utils::time::now_ns;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::TlsConnector;
 
 static CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 // ---------------------------------------------------------------------------
-pub async fn run_all_ports(cfg: Config, registry: PortRegistry) -> Result<()> {
+// TLS state carried through the proxy when `TLS_ENABLED=true`.
+// ---------------------------------------------------------------------------
+
+pub struct TlsState {
+    pub acceptor: TlsAcceptor,
+    /// If `Some`, traffic is re-encrypted to upstream over TLS.
+    pub upstream_connector: Option<TlsConnector>,
+    /// Upstream hostname used for the SNI extension.
+    pub upstream_host: String,
+}
+
+// ---------------------------------------------------------------------------
+pub async fn run_all_ports(
+    cfg: Config,
+    registry: PortRegistry,
+    tls: Option<Arc<TlsState>>,
+) -> Result<()> {
     for pb in cfg.ports.clone() {
         let cfg_clone = cfg.clone();
         let reg_clone = registry.clone();
-        let pb_clone = pb.clone(); // keep for log after move
+        let pb_clone = pb.clone();
+        let tls_clone = tls.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = run_proxy_for_port(cfg_clone, reg_clone, pb).await {
+            if let Err(e) = run_proxy_for_port(cfg_clone, reg_clone, pb, tls_clone).await {
                 sink_ecam::record(
                     Severity::Error,
                     Origin::Network(Filter),
@@ -50,6 +73,7 @@ pub(crate) async fn run_proxy_for_port(
     cfg: Config,
     registry: PortRegistry,
     pb: PortBinding,
+    tls: Option<Arc<TlsState>>,
 ) -> Result<()> {
     let bind_addr = SocketAddr::from(([0, 0, 0, 0], pb.public));
     let listener = TcpListener::bind(bind_addr).await.map_err(|e| {
@@ -82,20 +106,36 @@ pub(crate) async fn run_proxy_for_port(
                     .get(&public_port)
                     .expect("PortRuntime missing")
                     .clone();
+                let tls_clone = tls.clone();
 
                 tokio::spawn(async move {
-                    if let Err(e) = handle_conn(
-                        conn_id,
-                        client,
-                        client_addr,
-                        &upstream_host,
-                        upstream_port,
-                        public_port,
-                        debug,
-                        port_rt,
-                    )
-                    .await
-                    {
+                    let result = if let Some(ref tls_st) = tls_clone {
+                        handle_conn_tls(
+                            conn_id,
+                            client,
+                            client_addr,
+                            &upstream_host,
+                            upstream_port,
+                            public_port,
+                            debug,
+                            port_rt,
+                            tls_st,
+                        )
+                        .await
+                    } else {
+                        handle_conn_plain(
+                            conn_id,
+                            client,
+                            client_addr,
+                            &upstream_host,
+                            upstream_port,
+                            public_port,
+                            debug,
+                            port_rt,
+                        )
+                        .await
+                    };
+                    if let Err(e) = result {
                         sink_ecam::record(
                             Severity::Error,
                             Origin::Network(ClientToFilter(pb.public)),
@@ -128,7 +168,9 @@ pub(crate) async fn run_proxy_for_port(
 }
 
 // ---------------------------------------------------------------------------
-async fn handle_conn(
+// Plain-text connection handler (TLS disabled)
+// ---------------------------------------------------------------------------
+async fn handle_conn_plain(
     conn_id: u64,
     mut client: TcpStream,
     client_addr: SocketAddr,
@@ -201,6 +243,111 @@ async fn handle_conn(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// TLS connection handler (TLS_ENABLED=true)
+// ---------------------------------------------------------------------------
+async fn handle_conn_tls(
+    conn_id: u64,
+    client_tcp: TcpStream,
+    client_addr: SocketAddr,
+    upstream_host: &str,
+    upstream_port: u16,
+    public_port: u16,
+    debug: bool,
+    port_rt: Arc<PortRuntime>,
+    tls_st: &TlsState,
+) -> Result<()> {
+    // 1. Accept TLS from client ------------------------------------------
+    let client_tls = match tls_st.acceptor.accept(client_tcp).await {
+        Ok(s) => s,
+        Err(e) => {
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::Network(ClientToFilter(public_port)),
+                format!(
+                    "[conn_id={:04}] TLS handshake with client failed: {}",
+                    conn_id, e
+                ),
+                None,
+            );
+            return Ok(());
+        }
+    };
+
+    // 2. Connect to upstream (plain or TLS) ------------------------------
+    let upstream_addr = format!("{upstream_host}:{upstream_port}");
+    let upstream_tcp = match TcpStream::connect(&upstream_addr).await {
+        Ok(s) => {
+            tracing::debug!(
+                "[conn_id={:04}] connected to upstream (TLS) | filter@{} -> service@{}",
+                conn_id,
+                public_port,
+                upstream_addr
+            );
+            s
+        }
+        Err(e) => {
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::Network(NetworkOrigin::ServerToFilter(upstream_port)),
+                format!(
+                    "[conn_id={:04}] failed to connect to upstream at {} | error=\"{}\"",
+                    conn_id, upstream_addr, e
+                ),
+                None,
+            );
+            return Ok(());
+        }
+    };
+    let server_addr = upstream_tcp
+        .peer_addr()
+        .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap());
+
+    let conn_start_ns = now_ns();
+
+    // Use tokio::io::split because TLS streams don't expose split() by ref.
+    let (mut cr, mut cw) = io::split(client_tls);
+
+    if let Some(ref connector) = tls_st.upstream_connector {
+        // ---- upstream re-encryption path --------------------------------
+        let sni = crate::tls::server_name(&tls_st.upstream_host)?;
+        let server_tls = connector.connect(sni, upstream_tcp).await.map_err(|e| {
+            anyhow!(
+                "[conn_id={:04}] upstream TLS handshake failed: {}",
+                conn_id,
+                e
+            )
+        })?;
+
+        let (mut sr, mut sw) = io::split(server_tls);
+
+        let in_task = pump(
+            conn_id, true, &mut cr, &mut sw, client_addr, public_port,
+            upstream_port, debug, port_rt.clone(), conn_start_ns,
+        );
+        let out_task = pump(
+            conn_id, false, &mut sr, &mut cw, server_addr, public_port,
+            upstream_port, debug, port_rt, conn_start_ns,
+        );
+        let _ = tokio::try_join!(in_task, out_task)?;
+    } else {
+        // ---- upstream plain-text path -----------------------------------
+        let (mut sr, mut sw) = io::split(upstream_tcp);
+
+        let in_task = pump(
+            conn_id, true, &mut cr, &mut sw, client_addr, public_port,
+            upstream_port, debug, port_rt.clone(), conn_start_ns,
+        );
+        let out_task = pump(
+            conn_id, false, &mut sr, &mut cw, server_addr, public_port,
+            upstream_port, debug, port_rt, conn_start_ns,
+        );
+        let _ = tokio::try_join!(in_task, out_task)?;
+    }
+
+    Ok(())
+}
+
 ///
 /// # Arguments
 ///
@@ -255,7 +402,7 @@ where
                 src_ip: &src_addr.ip().to_string(),
                 src_port: src_addr.port(),
                 conn_start_ns: conn_start_ns,
-                conn_prev_msg_ns: conn_now_ns,
+                conn_prev_msg_ns: last_msg_ns,
             };
 
             last_msg_ns = conn_now_ns;
