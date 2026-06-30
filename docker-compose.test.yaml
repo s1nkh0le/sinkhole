@@ -1,0 +1,283 @@
+# =============================================================================
+#  sinkhole — TEST / INTEGRATION stack (NOT a production topology)
+# =============================================================================
+# Boots a whole mock attack&defense environment on one host so the system can be
+# exercised end-to-end. It mimics a 4-challenge A&D competition:
+#
+#   * each "challenge" is an internal echo upstream (a few ports, mixed
+#     behaviours) guarded by ITS OWN filter on a dedicated port range;
+#   * a single controller manages the whole filter fleet;
+#   * the Vite dev frontend talks to the controller (fire-and-forget UI).
+#
+# This file is intentionally VERBOSE and self-contained: every filter is spelled
+# out individually (no YAML anchors) to mirror a real deployment where each
+# challenge host is configured by hand, and all secrets are baked in here (no
+# .env) so the stack is stand-alone — `docker compose up` and nothing else.
+#
+# Per-challenge port ranges (host == published port):
+#   gadget     data 6001-6003   control 6999   (echo / delay / fixed)
+#   weather    data 7001-7002   control 7999   (echo + filter-terminated TLS on 7002)
+#   sea        data 8001-8004   control 8999   (echo / delay / fixed / echo)
+#   duty-free  data 9001-9002   control 9999   (echo / echo)
+#   controller 7000             frontend 5173
+#
+# Each filter binds its OWN control address (N999) — they all run on one host, so
+# a shared control port would let only the first bind. Each also has its own DB
+# (sinkhole-filter-<name>.db on its own volume) and its own auth token
+# (token-service-<name>-<rand>); the filter stores only sha256(token), the
+# controller holds the plaintext to call it.
+#
+# Echo upstreams are internal-only (`expose`, never `ports`): traffic reaches
+# them solely through their filter, exactly like a guarded service. The external
+# mock client (planned) sits OUTSIDE this stack and drives the published ports.
+#
+# NOTE on TLS: a TLS port is TLS end-to-end. The filter terminates client TLS
+# with the service's cert/key, inspects plaintext, then re-encrypts to the TLS
+# upstream. The weather port 7002 exercises this: filter 7002 (TLS) -> the TLS
+# echo port echo-weather:81. There is no TLS-in/plaintext-out mode.
+#
+# Usage:
+#   just cert                  # throwaway TLS cert -> docker/certs/ (run once)
+#   docker compose -f docker-compose.test.yaml up --build
+# =============================================================================
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  Challenge: gadget  (6xxx)
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo-gadget:
+    image: python:3.12-slim
+    command: python /srv/echo_server.py
+    restart: unless-stopped
+    environment:
+      ECHO_SPEC: >-
+        [{"port":80,"mode":"echo"},
+         {"port":81,"mode":"delay","delay_ms":1500},
+         {"port":82,"mode":"fixed","status":200,"body":"gadget-pong","content_type":"text/plain"}]
+    volumes:
+      - ./docker/nodes/echo_server.py:/srv/echo_server.py:ro
+    expose: ["80", "81", "82"]
+
+  filter-gadget:
+    build:
+      context: .
+      target: filter
+    image: sinkhole-filter:test
+    restart: unless-stopped
+    depends_on: [echo-gadget]
+    environment:
+      SINKHOLE_FILTER_UPSTREAM_HOST: echo-gadget
+      SINKHOLE_FILTER_LISTEN_MAP: "6001:80,6002:81,6003:82"
+      SINKHOLE_FILTER_CONTROL_BIND: "0.0.0.0:6999"
+      SINKHOLE_FILTER_DB_PATH: "/data/sinkhole-filter-gadget.db"
+      SINKHOLE_FILTER_DEBUG: "false"
+      SINKHOLE_FILTER_BODY_LIMIT_BYTES: "1048576"
+      # token-service-gadget-29ada454
+      SINKHOLE_FILTER_AUTH_TOKEN_HASH: "2c78b565a88337cf0c9b7c9f2a98853e615ba8450622d726fce7fda19db184f6"
+    volumes:
+      - gadget-data:/data
+    ports:
+      - "6001:6001"
+      - "6002:6002"
+      - "6003:6003"
+      - "6999:6999"   # control API
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  Challenge: weather  (7xxx, filter-terminated TLS on 7002)
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo-weather:
+    image: python:3.12-slim
+    command: python /srv/echo_server.py
+    restart: unless-stopped
+    environment:
+      # Port 81 is a TLS upstream: the filter re-encrypts to it (TLS->TLS).
+      ECHO_SPEC: >-
+        [{"port":80,"mode":"echo"},
+         {"port":81,"mode":"echo","tls":true}]
+      ECHO_TLS_CERT: /certs/cert.pem
+      ECHO_TLS_KEY: /certs/privkey.pem
+    volumes:
+      - ./docker/nodes/echo_server.py:/srv/echo_server.py:ro
+      - ./docker/certs:/certs:ro
+    expose: ["80", "81"]
+
+  filter-weather:
+    build:
+      context: .
+      target: filter
+    image: sinkhole-filter:test
+    restart: unless-stopped
+    depends_on: [echo-weather]
+    environment:
+      SINKHOLE_FILTER_UPSTREAM_HOST: echo-weather
+      SINKHOLE_FILTER_LISTEN_MAP: "7001:80,7002:81"
+      # 7002 is a TLS service end-to-end: terminate client TLS with this cert/key,
+      # inspect plaintext, then re-encrypt to the TLS upstream (echo-weather:81).
+      SINKHOLE_FILTER_TLS_MAP: "7002:/certs/cert.pem:/certs/privkey.pem"
+      SINKHOLE_FILTER_CONTROL_BIND: "0.0.0.0:7999"
+      SINKHOLE_FILTER_DB_PATH: "/data/sinkhole-filter-weather.db"
+      SINKHOLE_FILTER_DEBUG: "false"
+      SINKHOLE_FILTER_BODY_LIMIT_BYTES: "1048576"
+      # token-service-weather-891248b1
+      SINKHOLE_FILTER_AUTH_TOKEN_HASH: "2604a9788a3bd8d2e466b0b48992d183278c4dd6660208ed25720a1994ef9b15"
+    volumes:
+      - weather-data:/data
+      - ./docker/certs:/certs:ro
+    ports:
+      - "7001:7001"
+      - "7002:7002"
+      - "7999:7999"   # control API
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  Challenge: sea  (8xxx, the 4-port challenge)
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo-sea:
+    image: python:3.12-slim
+    command: python /srv/echo_server.py
+    restart: unless-stopped
+    environment:
+      # Port 83 is a raw (non-HTTP) TCP echo: the filter can't HTTP-parse it, so
+      # it flows as raw stream chunks — the stream-scope test target (8004).
+      ECHO_SPEC: >-
+        [{"port":80,"mode":"echo"},
+         {"port":81,"mode":"delay","delay_ms":800},
+         {"port":82,"mode":"fixed","status":403,"body":"forbidden","content_type":"text/plain"},
+         {"port":83,"mode":"raw"},
+         {"port":84,"mode":"exec","exec_cmd":["python","/srv/menu_app.py"]}]
+    volumes:
+      - ./docker/nodes/echo_server.py:/srv/echo_server.py:ro
+      - ./docker/nodes/menu_app.py:/srv/menu_app.py:ro
+    expose: ["80", "81", "82", "83", "84"]
+
+  filter-sea:
+    build:
+      context: .
+      target: filter
+    image: sinkhole-filter:test
+    restart: unless-stopped
+    depends_on: [echo-sea]
+    environment:
+      SINKHOLE_FILTER_UPSTREAM_HOST: echo-sea
+      SINKHOLE_FILTER_LISTEN_MAP: "8001:80,8002:81,8003:82,8004:83,8005:84"
+      SINKHOLE_FILTER_CONTROL_BIND: "0.0.0.0:8999"
+      SINKHOLE_FILTER_DB_PATH: "/data/sinkhole-filter-sea.db"
+      SINKHOLE_FILTER_DEBUG: "false"
+      SINKHOLE_FILTER_BODY_LIMIT_BYTES: "1048576"
+      # token-service-sea-d3d257e2
+      SINKHOLE_FILTER_AUTH_TOKEN_HASH: "0308ff07629eded26db140b357828c4b8aae9713cc61a290e23f28b4ab659617"
+    volumes:
+      - sea-data:/data
+    ports:
+      - "8001:8001"
+      - "8002:8002"
+      - "8003:8003"
+      - "8004:8004"
+      - "8005:8005"   # interactive menu (exec upstream)
+      - "8999:8999"   # control API
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  Challenge: duty-free  (9xxx)
+  # ═══════════════════════════════════════════════════════════════════════════
+  echo-dutyfree:
+    image: python:3.12-slim
+    command: python /srv/echo_server.py
+    restart: unless-stopped
+    environment:
+      ECHO_SPEC: >-
+        [{"port":80,"mode":"echo"},
+         {"port":81,"mode":"echo"}]
+    volumes:
+      - ./docker/nodes/echo_server.py:/srv/echo_server.py:ro
+    expose: ["80", "81"]
+
+  filter-dutyfree:
+    build:
+      context: .
+      target: filter
+    image: sinkhole-filter:test
+    restart: unless-stopped
+    depends_on: [echo-dutyfree]
+    environment:
+      SINKHOLE_FILTER_UPSTREAM_HOST: echo-dutyfree
+      SINKHOLE_FILTER_LISTEN_MAP: "9001:80,9002:81"
+      SINKHOLE_FILTER_CONTROL_BIND: "0.0.0.0:9999"
+      SINKHOLE_FILTER_DB_PATH: "/data/sinkhole-filter-duty-free.db"
+      SINKHOLE_FILTER_DEBUG: "false"
+      SINKHOLE_FILTER_BODY_LIMIT_BYTES: "1048576"
+      # token-service-duty-free-53cf8896
+      SINKHOLE_FILTER_AUTH_TOKEN_HASH: "b8598fd316cc727fdf8107ac2d8e3507e5c3b76b79077fcecc3f83bbe2fa14d8"
+    volumes:
+      - dutyfree-data:/data
+    ports:
+      - "9001:9001"
+      - "9002:9002"
+      - "9999:9999"   # control API
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  Controller: single orchestrator over the whole filter fleet
+  # ═══════════════════════════════════════════════════════════════════════════
+  sinkhole-controller:
+    build:
+      context: .
+      target: controller
+    image: sinkhole-controller:test
+    restart: unless-stopped
+    depends_on:
+      - filter-gadget
+      - filter-weather
+      - filter-sea
+      - filter-dutyfree
+    environment:
+      SINKHOLE_CONTROLLER_BIND: "0.0.0.0:7000"
+      SINKHOLE_CONTROLLER_DEBUG: "false"
+      # The controller's own user/UI-facing API token (Bearer).
+      SINKHOLE_CONTROLLER_AUTH_TOKEN: "token-controller-897fe79a"
+      # This test stack serves the UI from the Vite dev server (hot reload) on 5173,
+      # NOT the controller's bundled copy, so disable the embedded UI (it isn't built
+      # into the Docker image anyway) and allow the dev server's cross-origin calls.
+      SINKHOLE_CONTROLLER_SERVE_FRONTEND: "false"
+      SINKHOLE_CONTROLLER_CORS_ORIGIN: "http://localhost:5173"
+      SINKHOLE_CONTROLLER_DB_PATH: "/data/sinkhole-ctrl.db"
+      # Managed filters. Each `token` is that filter's PLAINTEXT secret; its
+      # sha256 is the SINKHOLE_FILTER_AUTH_TOKEN_HASH set on the matching filter
+      # above. `url` points at the filter's distinct control port over the
+      # compose network.
+      SINKHOLE_CONTROLLER_SERVICES: >-
+        [{"id":"gadget","url":"http://filter-gadget:6999","token":"token-service-gadget-29ada454","name":"Gadget"},
+         {"id":"weather","url":"http://filter-weather:7999","token":"token-service-weather-891248b1","name":"Weather"},
+         {"id":"sea","url":"http://filter-sea:8999","token":"token-service-sea-d3d257e2","name":"Sea"},
+         {"id":"duty-free","url":"http://filter-dutyfree:9999","token":"token-service-duty-free-53cf8896","name":"Duty Free"}]
+
+      SINKHOLE_CONTROLLER_SYNC_RECORDS_INTERVAL_SECS: 5
+    volumes:
+      - ctrl-data:/data
+    ports:
+      - "7000:7000"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  Frontend: Vite dev server (fire-and-forget operator UI)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Source is bind-mounted for hot reload; node_modules lives in an anonymous
+  # volume so the container's install isn't shadowed by the host mount.
+  # `--legacy-peer-deps` is required: the frontend pins typescript ~6 while
+  # openapi-typescript declares a typescript ^5 peer (an upstream conflict in
+  # frontend/package.json that npm otherwise refuses to resolve).
+  frontend:
+    image: node:22-slim
+    working_dir: /app
+    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --host 0.0.0.0 --port 5173"
+    depends_on:
+      - sinkhole-controller
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    ports:
+      - "5173:5173"
+
+volumes:
+  gadget-data:
+  weather-data:
+  sea-data:
+  dutyfree-data:
+  ctrl-data:
+  frontend-node-modules:

@@ -1,15 +1,13 @@
-// controller/src/sync/data_pull.rs
-
+use crate::db::commands::DbHandle;
 use crate::db::insertion::insert_ecam;
+use crate::fetch::fetch_ecam::fetch_ecam;
 use crate::state::ctrl::{ControllerState, Service};
 use crate::state::health::HealthLayer;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, Instant};
+use tokio::time::{Instant, sleep};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
-use crate::db::commands::DbHandle;
-use crate::fetch::fetch_ecam::fetch_ecam;
 
 const TICK: Duration = Duration::from_millis(200);
 
@@ -21,14 +19,7 @@ pub fn spawn_for_service(
     duration: Duration,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
-    tokio::spawn(ecam_loop(
-        service_id,
-        state,
-        http,
-        db,
-        duration,
-        cancel,
-    ))
+    tokio::spawn(ecam_loop(service_id, state, http, db, duration, cancel))
 }
 
 async fn ecam_loop(
@@ -90,7 +81,18 @@ async fn ecam_loop(
         match fetch_ecam(&http, &base_url, &token, since).await {
             Ok((events, next_since)) => {
                 if !events.is_empty() {
-                    insert_ecam(&db, &svc_id, &events).await;
+                    // Confirmed write: advance the ECAM cursor only after a durable
+                    // commit; otherwise retry from the same cursor next tick.
+                    if let Err(e) = insert_ecam(&db, &svc_id, &events).await {
+                        let detail = format!("ECAM insert failed: {e}");
+                        warn!(%svc_id, %detail);
+                        let mut w = state.write();
+                        if let Some(svc) = w.services.get_mut(&svc_id) {
+                            svc.health.mark_failure(layer, Some(detail));
+                        }
+                        next_at = Instant::now() + cadence;
+                        continue; // cursor not advanced
+                    }
                     debug!(%svc_id, pulled = events.len(), "ECAM batch written");
                 }
 

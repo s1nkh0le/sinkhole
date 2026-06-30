@@ -1,18 +1,18 @@
 use crate::state::ctrl::{ControllerState, ServiceCursors, ServiceMetadata};
 use crate::state::health::Health;
 use axum::extract::OriginalUri;
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use shared::api::ok::{ok, OkEnvelope};
-use utoipa::ToSchema;
 use shared::api::err::ErrorEnvelope;
+use shared::api::ok::{OkEnvelope, ok};
 use shared::types::snapshot_types::PortSnapshot;
+use utoipa::ToSchema;
 
 #[derive(Serialize, ToSchema)]
 pub struct CtrlReplyBodyState {
     pub controller: CtrlReplyBodyController,
-    pub services:   Vec<CtrlReplyBodyServiceState>,
+    pub services: Vec<CtrlReplyBodyServiceState>,
 }
 impl shared::api::ok::sealed::Sealed for CtrlReplyBodyState {}
 impl shared::api::ok::OkData for CtrlReplyBodyState {}
@@ -22,33 +22,34 @@ pub struct CtrlReplyBodyController {
     pub debug: bool,
     pub bind: String,
     pub db_path: String,
-    pub pull_interval_secs: u64,
-    pub sync_interval_secs: u64,
+    pub sync_health_interval_secs: u64,
+    pub sync_ecam_interval_secs: u64,
+    pub sync_records_interval_secs: u64,
+    pub sync_config_interval_secs: u64,
     pub sync_concurrency: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CtrlReplyBodyServiceState {
     /// Service identifier
-    pub id:        String,
-    pub name:      Option<String>,
-    pub base_url:  String,
+    pub id: String,
+    pub base_url: String,
 
     /// User-editable metadata (name/description/color/icon, etc.)
-    pub metadata:  ServiceMetadata,
+    pub metadata: ServiceMetadata,
 
     /// Live service health
-    pub health:    Health,
+    pub health: Health,
 
-    pub cursors:   ServiceCursors,
-    pub ports:     Vec<CtrlReplyPort>,
+    pub cursors: ServiceCursors,
+    pub ports: Vec<CtrlReplyPort>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CtrlReplyPort {
-    pub port:               u16,
+    pub port: u16,
     pub next_records_since: u64,
-    pub snapshot:           Option<PortSnapshot>,
+    pub snapshot: Option<PortSnapshot>,
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────
@@ -61,9 +62,6 @@ pub struct CtrlReplyPort {
 #[utoipa::path(
     get,
     path = "/state",
-    params(
-        // ("ctrl_token" = String, Query,                              description = "Authentication token"),
-    ),
     responses(
         (status = 200, description = "OK",                          body = OkEnvelope<CtrlReplyBodyState>),
         (status = 401, description = "Unauthorized",                body = ErrorEnvelope)
@@ -78,12 +76,14 @@ pub async fn get_state(
     let ctrl_meta = {
         let cfg = state.cfg();
         CtrlReplyBodyController {
-            debug:              cfg.debug,
-            bind:               cfg.bind.to_string(),
-            db_path:            cfg.db_path.clone(),
-            pull_interval_secs: cfg.pull_interval.as_secs(),
-            sync_interval_secs: cfg.sync_interval_secs,
-            sync_concurrency:   cfg.sync_concurrency,
+            debug: cfg.debug,
+            bind: cfg.bind.to_string(),
+            db_path: cfg.db_path.clone(),
+            sync_health_interval_secs: cfg.sync_health_interval.as_secs(),
+            sync_ecam_interval_secs: cfg.sync_ecam_interval.as_secs(),
+            sync_records_interval_secs: cfg.sync_records_interval.as_secs(),
+            sync_config_interval_secs: cfg.sync_config_interval.as_secs(),
+            sync_concurrency: cfg.sync_concurrency,
         }
     };
 
@@ -107,12 +107,11 @@ pub async fn get_state(
                 ports.sort_by_key(|p| p.port);
 
                 CtrlReplyBodyServiceState {
-                    id:       id.clone(),
-                    name:     svc.cfg.name.clone(),
+                    id: id.clone(),
                     base_url: svc.cfg.base_url.clone(),
                     metadata: svc.metadata.clone(),
-                    health:   svc.health.clone(),
-                    cursors:  svc.service_cursors.clone(),
+                    health: svc.health.clone(),
+                    cursors: svc.service_cursors.clone(),
                     ports,
                 }
             })

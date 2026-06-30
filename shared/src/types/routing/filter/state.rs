@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 /// Full serialized fetch of the controller
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FilterStateOkData {
-    pub ports:     Vec<PortSnapshot>,
+    pub ports: Vec<PortSnapshot>,
 }
 impl crate::api::ok::sealed::Sealed for FilterStateOkData {}
 impl crate::api::ok::OkData for FilterStateOkData {}

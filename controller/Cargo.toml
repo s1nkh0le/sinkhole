@@ -1,7 +1,8 @@
 [package]
 name = "controller"
-version = "0.1.0"
-edition = "2021"
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
 
 [dependencies]
 shared = { path = "../shared" }
@@ -9,7 +10,7 @@ tokio = { version = "1.47.1", features = ["full", "macros"] }
 axum = { version = "0.8.4", features = ["json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.142"
-reqwest = { version = "0.12.22", features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.12.22", default-features = false, features = ["json", "rustls-tls", "stream", "http2", "charset"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 parking_lot = "0.12.4"
@@ -21,3 +22,4 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 rand = "0.9.2"
 envy = "0.4.2"
 tokio-util = "0.7.15"
+rust-embed = { version = "8", features = ["mime-guess", "debug-embed"] }

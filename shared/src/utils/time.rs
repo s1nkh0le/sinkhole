@@ -1,6 +1,6 @@
+use time::OffsetDateTime;
 use time::format_description::FormatItem;
 use time::macros::format_description;
-use time::OffsetDateTime;
 
 /// Monotonic-ish timestamp_ns (wall-clock ns since UNIX)
 pub fn now_ns() -> u64 {
@@ -14,7 +14,7 @@ pub fn now_ns() -> u64 {
 
 /// Conversion for human-displayable hour time
 pub fn ns_to_hms(ns_since_epoch: u64) -> String {
-    let signed_ns = i128::try_from(ns_since_epoch).expect("timestamp out of i128 range");
+    let signed_ns = i128::from(ns_since_epoch);
 
     let dt = OffsetDateTime::from_unix_timestamp_nanos(signed_ns).expect("ns out of range");
 

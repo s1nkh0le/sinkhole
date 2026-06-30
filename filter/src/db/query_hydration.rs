@@ -2,6 +2,7 @@ use crate::db::schema::init_schema;
 use crate::rules::RuleSetRaw;
 use rusqlite::{Connection, params};
 use shared::types::base_types::Scope;
+use shared::types::routing::filter::ruleset::RulesetHistoryEntry;
 use std::sync::Arc;
 
 pub struct HydratedPortData {
@@ -35,9 +36,9 @@ pub fn hydrate_registry(
                 if let Some(hc) = cfgp.hex_color {
                     pr.hex_color.store(Some(Arc::new(hc)));
                 }
-                let mut g = pr.enabled_scopes.write().unwrap();
+                let mut g = pr.enabled_scopes.write();
                 g.clear();
-                g.extend(cfgp.enabled_scopes.into_iter());
+                g.extend(cfgp.enabled_scopes);
             }
             if let Some((raw, _ver)) = h.ruleset {
                 let compiled = crate::rules::compile::compile_ruleset(&raw)?;
@@ -67,9 +68,48 @@ pub fn hydrate_for_ports(
     Ok(out)
 }
 
+/// Load the full publish history for a port, newest first. Each row's `json` is
+/// a serialized `RuleSetRaw`; the commit message rides inside it. Unparseable
+/// rows are skipped rather than failing the whole listing.
+pub fn load_ruleset_history(
+    conn: &Connection,
+    port: u16,
+) -> anyhow::Result<Vec<RulesetHistoryEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT version, json, updated_at_ns FROM port_rulesets
+         WHERE external_port = ? ORDER BY id DESC",
+    )?;
+    let rows = stmt.query_map(params![port as i64], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    })?;
+
+    let mut out = Vec::new();
+    for r in rows {
+        let (version, json, updated_at_ns) = r?;
+        match serde_json::from_str::<RuleSetRaw>(&json) {
+            Ok(ruleset) => out.push(RulesetHistoryEntry {
+                version,
+                updated_at_ns,
+                ruleset,
+            }),
+            Err(e) => tracing::warn!(
+                port,
+                version,
+                "skipping unparseable ruleset history row: {e}"
+            ),
+        }
+    }
+    Ok(out)
+}
 
 fn load_ruleset(conn: &mut Connection, port: u16) -> anyhow::Result<Option<(RuleSetRaw, String)>> {
-    let mut stmt = conn.prepare("SELECT version, json FROM port_rulesets WHERE port = ?")?;
+    let mut stmt = conn.prepare(
+        "SELECT version, json FROM port_rulesets WHERE external_port = ? ORDER BY id DESC LIMIT 1",
+    )?;
     let mut rows = stmt.query(params![port as i64])?;
     if let Some(row) = rows.next()? {
         let version: String = row.get(0)?;
@@ -84,7 +124,7 @@ fn load_ruleset(conn: &mut Connection, port: u16) -> anyhow::Result<Option<(Rule
 fn load_config(conn: &mut Connection, port: u16) -> anyhow::Result<Option<HydratedConfig>> {
     let mut stmt = conn.prepare(
         "SELECT name, comment, hex_color, enabled_scopes_json
-         FROM port_configs WHERE external_port = ?",
+         FROM port_configs WHERE external_port = ? ORDER BY id DESC LIMIT 1",
     )?;
     let mut rows = stmt.query(params![port as i64])?;
     if let Some(row) = rows.next()? {

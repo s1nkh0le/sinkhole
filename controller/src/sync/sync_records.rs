@@ -1,16 +1,16 @@
-// controller/src/sync/data_pull.rs
-
-use crate::db::insertion::{insert_ecam, insert_records};
-use crate::fetch::fetch_records::{fetch_records};
+use crate::db::commands::DbHandle;
+use crate::db::insertion::insert_records;
+use crate::fetch::fetch_records::fetch_records;
 use crate::state::ctrl::{ControllerState, Service};
 use crate::state::health::HealthLayer;
 use reqwest::Client;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, Instant};
+use tokio::time::{Instant, sleep};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
-use crate::db::commands::DbHandle;
 
 // Small tick so we can react quickly to cancel/backoff/cadence gates
 const TICK: Duration = Duration::from_millis(200);
@@ -26,9 +26,7 @@ pub fn spawn_for_service(
     cadence: Duration,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
-    tokio::spawn(records_loop(
-        service_id, state, http, db, cadence, cancel,
-    ))
+    tokio::spawn(records_loop(service_id, state, http, db, cadence, cancel))
 }
 
 async fn records_loop(
@@ -93,53 +91,106 @@ async fn records_loop(
             continue;
         }
 
-        // iterate ports; for each port, page until batch < limit
-        for (port, mut since) in port_cursors {
-            loop {
-                if cancel.is_cancelled() {
-                    break;
-                }
+        // iterate ports concurrently, bounded by `sync_concurrency`
+        let concurrency = state.cfg().sync_concurrency.max(1);
+        let sem = Arc::new(Semaphore::new(concurrency));
+        let mut tasks: Vec<JoinHandle<()>> = Vec::new();
 
-                match fetch_records(&http, &base_url, port, &token, since).await {
-                    Ok((records, next_since)) => {
-                        if !records.is_empty() {
-                            insert_records(&db, &svc_id, port, &records).await;
-                            debug!(%svc_id, %port, pulled = records.len(), "records batch written");
-                        }
+        for (port, since) in port_cursors {
+            let permit_sem = sem.clone();
+            let st = state.clone();
+            let cli = http.clone();
+            let dbh = db.clone();
+            let svc = svc_id.clone();
+            let base = base_url.clone();
+            let tok = token.clone();
+            let cancel_c = cancel.clone();
 
-                        // advance cursor and mark success for this layer
-                        let mut w = state.write();
-                        if let Some(svc) = w.services.get_mut(&svc_id) {
-                            if let Some(p) = svc.ports.get_mut(&port) {
-                                p.cursors.next_records_since = next_since;
-                            }
-                            svc.health.mark_success(layer);
-                        } else {
-                            return; // service removed during write
-                        }
+            tasks.push(tokio::spawn(async move {
+                // bound in-flight fetches; if the semaphore is gone, just bail
+                let _permit = match permit_sem.acquire().await {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+                pull_one_port(
+                    &svc, port, since, &cli, &base, &tok, &st, &dbh, layer, &cancel_c,
+                )
+                .await;
+            }));
+        }
 
-                        let done = records.len() < REC_BATCH_LIMIT;
-                        since = next_since;
-                        if done {
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        let detail = format!("record pull failed for port {port}: {err}");
-                        warn!(%svc_id, %port, %detail);
-                        let mut w = state.write();
-                        if let Some(svc) = w.services.get_mut(&svc_id) {
-                            svc.health.mark_failure(layer, Some(detail));
-                        } else {
-                            return;
-                        }
-                        break; // stop paging this port; move to next
-                    }
-                }
-            }
+        for t in tasks {
+            let _ = t.await;
         }
 
         // schedule next cadence tick
         next_at = Instant::now() + cadence;
+    }
+}
+
+/// Page through one port's records until a short batch, advancing its cursor and
+/// marking health. Independent per port, so callers may run these concurrently.
+async fn pull_one_port(
+    svc_id: &str,
+    port: u16,
+    mut since: u64,
+    http: &Client,
+    base_url: &str,
+    token: &str,
+    state: &ControllerState,
+    db: &DbHandle,
+    layer: HealthLayer,
+    cancel: &CancellationToken,
+) {
+    loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+
+        match fetch_records(http, base_url, port, token, since).await {
+            Ok((records, next_since)) => {
+                if !records.is_empty() {
+                    // Confirmed write: only advance the cursor once the batch is
+                    // durably committed. On failure we leave the cursor put and
+                    // retry from the same `since` next tick (at-least-once).
+                    if let Err(e) = insert_records(db, svc_id, port, &records).await {
+                        let detail = format!("record insert failed for port {port}: {e}");
+                        warn!(%svc_id, %port, %detail);
+                        let mut w = state.write();
+                        if let Some(svc) = w.services.get_mut(svc_id) {
+                            svc.health.mark_failure(layer, Some(detail));
+                        }
+                        break; // stop paging this port; cursor not advanced
+                    }
+                    debug!(%svc_id, %port, pulled = records.len(), "records batch written");
+                }
+
+                // advance cursor and mark success for this layer
+                let mut w = state.write();
+                if let Some(svc) = w.services.get_mut(svc_id) {
+                    if let Some(p) = svc.ports.get_mut(&port) {
+                        p.cursors.next_records_since = next_since;
+                    }
+                    svc.health.mark_success(layer);
+                } else {
+                    return; // service removed during write
+                }
+
+                let done = records.len() < REC_BATCH_LIMIT;
+                since = next_since;
+                if done {
+                    break;
+                }
+            }
+            Err(err) => {
+                let detail = format!("record pull failed for port {port}: {err}");
+                warn!(%svc_id, %port, %detail);
+                let mut w = state.write();
+                if let Some(svc) = w.services.get_mut(svc_id) {
+                    svc.health.mark_failure(layer, Some(detail));
+                }
+                break; // stop paging this port
+            }
+        }
     }
 }

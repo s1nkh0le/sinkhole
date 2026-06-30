@@ -1,0 +1,16 @@
+.rollback-confirm {
+  display: flex;
+  flex-direction: column;
+}
+
+.rollback-confirm__text {
+  font-size: var(--text-md);
+  color: var(--color-text-primary);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-2);
+}
+
+.rollback-confirm__text strong {
+  font-weight: var(--weight-semibold);
+  color: var(--color-error);
+}

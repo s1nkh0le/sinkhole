@@ -1,12 +1,11 @@
-use std::fmt;
-use axum::http::StatusCode;
 use axum::Json;
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::fmt;
 
-#[derive(utoipa::ToSchema)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorEnvelope {
     /// The status string; always "error"
     pub status: String,
@@ -47,7 +46,9 @@ impl fmt::Display for ErrorEnvelope {
                     first = false;
                 }
                 if let Some(inst) = &self.instance {
-                    if !first { write!(f, ", ")?; }
+                    if !first {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "instance={}", inst)?;
                 }
                 write!(f, ")")?;
@@ -76,20 +77,15 @@ impl fmt::Display for ErrorEnvelope {
 impl IntoResponse for ErrorEnvelope {
     fn into_response(self) -> Response {
         // Try to map your code into a StatusCode, falling back to 500 if it's invalid
-        let status = StatusCode::from_u16(self.code)
-            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let status = StatusCode::from_u16(self.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
         // (status, Json(body)) is already IntoResponse for a JSON payload
         (status, Json(self)).into_response()
     }
 }
 
-
 impl ErrorEnvelope {
-    pub fn new(
-        code: StatusCode,
-        title: impl Into<String>
-    ) -> Self {
+    pub fn new(code: StatusCode, title: impl Into<String>) -> Self {
         Self {
             status: "error".to_string(),
             code: code.as_u16(),
@@ -114,14 +110,14 @@ impl ErrorEnvelope {
             detail: Some(detail.into()),
             error: Some(error.into()),
             instance: Some(instance.into()),
-        }.into_result()
+        }
+        .into_result()
     }
 
     pub fn with_error(mut self, err: impl Into<String>) -> Self {
         self.error = Some(err.into());
         self
     }
-
 
     pub fn with_error_list<I, S>(mut self, msgs: I) -> Self
     where
@@ -143,7 +139,7 @@ impl ErrorEnvelope {
         self.title = title.into();
         self
     }
-    
+
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
         self
@@ -160,16 +156,18 @@ impl ErrorEnvelope {
         (code, Json(json!(self)))
     }
 
-
     pub fn bad_request(error: impl Into<String>, instance: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, reason_for(StatusCode::BAD_REQUEST))
             .with_error(error)
             .with_instance(instance)
     }
     pub fn unauthorized(error: impl Into<String>, instance: impl Into<String>) -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, reason_for(StatusCode::UNAUTHORIZED))
-            .with_error(error)
-            .with_instance(instance)
+        Self::new(
+            StatusCode::UNAUTHORIZED,
+            reason_for(StatusCode::UNAUTHORIZED),
+        )
+        .with_error(error)
+        .with_instance(instance)
     }
     pub fn forbidden(error: impl Into<String>, instance: impl Into<String>) -> Self {
         Self::new(StatusCode::FORBIDDEN, reason_for(StatusCode::FORBIDDEN))
@@ -187,24 +185,36 @@ impl ErrorEnvelope {
             .with_instance(instance)
     }
     pub fn unprocessable_entity(error: impl Into<String>, instance: impl Into<String>) -> Self {
-        Self::new(StatusCode::UNPROCESSABLE_ENTITY, reason_for(StatusCode::UNPROCESSABLE_ENTITY))
-            .with_error(error)
-            .with_instance(instance)
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            reason_for(StatusCode::UNPROCESSABLE_ENTITY),
+        )
+        .with_error(error)
+        .with_instance(instance)
     }
     pub fn too_many_requests(error: impl Into<String>, instance: impl Into<String>) -> Self {
-        Self::new(StatusCode::TOO_MANY_REQUESTS, reason_for(StatusCode::TOO_MANY_REQUESTS))
-            .with_error(error)
-            .with_instance(instance)
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            reason_for(StatusCode::TOO_MANY_REQUESTS),
+        )
+        .with_error(error)
+        .with_instance(instance)
     }
     pub fn internal(error: impl Into<String>, instance: impl Into<String>) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, reason_for(StatusCode::INTERNAL_SERVER_ERROR))
-            .with_error(error)
-            .with_instance(instance)
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            reason_for(StatusCode::INTERNAL_SERVER_ERROR),
+        )
+        .with_error(error)
+        .with_instance(instance)
     }
     pub fn service_unavailable(error: impl Into<String>, instance: impl Into<String>) -> Self {
-        Self::new(StatusCode::SERVICE_UNAVAILABLE, reason_for(StatusCode::SERVICE_UNAVAILABLE))
-            .with_error(error)
-            .with_instance(instance)
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            reason_for(StatusCode::SERVICE_UNAVAILABLE),
+        )
+        .with_error(error)
+        .with_instance(instance)
     }
     pub fn bad_gateway(error: impl Into<String>, instance: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_GATEWAY, reason_for(StatusCode::BAD_GATEWAY))
@@ -217,8 +227,7 @@ fn reason_for(code: StatusCode) -> &'static str {
     code.canonical_reason().unwrap_or("Error")
 }
 
-
 #[inline]
-pub fn err<T : Serialize>(code: StatusCode, err: T) -> (StatusCode, Json<Value>) {
+pub fn err<T: Serialize>(code: StatusCode, err: T) -> (StatusCode, Json<Value>) {
     (code, Json(json!(err)))
 }

@@ -5,15 +5,13 @@ use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use axum::Json;
 use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
-use serde::{Serialize};
-use serde_json::{from_value, json, Value};
-use tracing::log::debug;
-use utoipa::{ToSchema};
+use serde_json::{Value, json};
 use shared::api::err::ErrorEnvelope;
-use shared::api::ok::{ok, OkEnvelope};
-use shared::types::routing::filter::records::{FilterReplyRecordsAndCursor, FilterRequestGetQueryRecords};
-
-
+use shared::api::ok::OkEnvelope;
+use shared::types::routing::filter::records::{
+    FilterReplyRecordsAndCursor, FilterRequestGetQueryRecords,
+};
+use tracing::log::debug;
 
 /// /ports/{port}/records
 ///
@@ -22,7 +20,6 @@ use shared::types::routing::filter::records::{FilterReplyRecordsAndCursor, Filte
     get,
     path = "/ports/{port}/records",
     params(
-        // ("token" = String, Query,                               description = "Authentication token"),
         ("port" = u16, Path,                                    description = "Public port"),
     ),
     responses(
@@ -51,24 +48,26 @@ pub async fn get_records(
 
         return ErrorEnvelope::not_found("sanitization", uri.path())
             .with_title("Unknown Port")
-            .into_result()
+            .into_result();
     }
 
     // ---- sanity checks -------------------------------------------------
     let mut errs = Vec::new();
 
     let decision = q.decision.as_deref().map(str::to_ascii_lowercase);
-    if let Some(ref d) = decision {
-        if d != "allow" && d != "drop" {
-            errs.push(format!("decision must be 'allow' or 'drop', got {}", d));
-        }
+    if let Some(ref d) = decision
+        && d != "allow"
+        && d != "drop"
+    {
+        errs.push(format!("decision must be 'allow' or 'drop', got {}", d));
     }
 
     let dir = q.dir.as_deref().map(str::to_ascii_lowercase);
-    if let Some(ref d) = dir {
-        if d != "in" && d != "out" {
-            errs.push(format!("dir must be 'in' or 'out', got {}", d));
-        }
+    if let Some(ref d) = dir
+        && d != "in"
+        && d != "out"
+    {
+        errs.push(format!("dir must be 'in' or 'out', got {}", d));
     }
 
     let reason = q.reason.as_deref().map(str::to_ascii_lowercase);
@@ -101,33 +100,60 @@ pub async fn get_records(
 
     let since: u64 = q.since.unwrap_or(0);
     let until = q.until.unwrap_or(i64::MAX as u64);
-    if since < 0 || until < 0 || until < since {
-        errs.push(format!("invalid since/until range: got since={}, until={}", since, until));
+    if until < since {
+        errs.push(format!(
+            "invalid since/until range: got since={}, until={}",
+            since, until
+        ));
     }
 
     if !errs.is_empty() {
-        sink_ecam::record(Severity::Warn, Origin::API, format!("[get_records(), GET {}]: errors while preparing query: {}", uri.path(), errs.join(", ")), None);
+        sink_ecam::record(
+            Severity::Warn,
+            Origin::API,
+            format!(
+                "[get_records(), GET {}]: errors while preparing query: {}",
+                uri.path(),
+                errs.join(", ")
+            ),
+            None,
+        );
 
         return ErrorEnvelope::bad_request("sanitization", uri.path())
-                .with_title("Bad Request")
-                .with_detail(format!("Errors: {:?}", errs.join(", ")))
-                .into_result()
+            .with_title("Bad Request")
+            .with_detail(format!("Errors: {:?}", errs.join(", ")))
+            .into_result();
     }
 
     let db_since = i64::try_from(since).unwrap_or(0);
     let db_until = i64::try_from(until).unwrap_or(i64::MAX);
 
-    match db::query::fetch_records_filtered(db.path.clone(), port, db_since, db_until, limit, asc, q.decision.as_deref(), q.dir.as_deref(), q.reason.as_deref())
+    match db::query::fetch_records_filtered(
+        db.path.clone(),
+        port,
+        db_since,
+        db_until,
+        limit,
+        asc,
+        q.decision.as_deref(),
+        q.dir.as_deref(),
+        q.reason.as_deref(),
+    )
     .await
     {
-        Ok((mut records, _last_ts_from_db)) => {
+        Ok((records, _last_ts_from_db)) => {
             let next_since = records
                 .last()
                 .and_then(|r| r.get("timestamp_ns").and_then(|v| v.as_u64()))
                 .map(|ts| ts + 1)
                 .unwrap_or(since);
             {
-                debug!("[get_records(), GET {}]: got {} records: {:?}", uri.path(),records.len(),records);
+                debug!(
+                    "[get_records(), GET {}]: got {} records: {:?}",
+                    uri.path(),
+                    records.len(),
+                    records
+                );
 
                 (
                     StatusCode::OK,
@@ -142,7 +168,16 @@ pub async fn get_records(
             }
         }
         Err(e) => {
-            sink_ecam::record(Severity::Warn, Origin::API, format!("[get_records(), GET {}]: database query failed: error={}", uri.path(), e), None);
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!(
+                    "[get_records(), GET {}]: database query failed: error={}",
+                    uri.path(),
+                    e
+                ),
+                None,
+            );
 
             ErrorEnvelope::internal("db_query_failure", uri.path())
                 .with_title("DB Query Failed")
@@ -151,5 +186,3 @@ pub async fn get_records(
         }
     }
 }
-
-

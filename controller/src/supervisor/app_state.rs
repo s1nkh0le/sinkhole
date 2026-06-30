@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use axum::extract::FromRef;
 use crate::state::ctrl::ControllerState;
 use crate::supervisor::supervisor::Supervisor;
+use axum::extract::FromRef;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {

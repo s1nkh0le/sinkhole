@@ -1,5 +1,4 @@
 mkdocs-material
 mkdocs-minify-plugin
-mkdocs-redirects
 mkdocs-swagger-ui-tag
 beautifulsoup4

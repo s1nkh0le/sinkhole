@@ -1,0 +1,33 @@
+.status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.status-dot__inner {
+  display: block;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.status-dot--sm .status-dot__inner { width: 8px; height: 8px; }
+.status-dot--md .status-dot__inner { width: 10px; height: 10px; }
+
+.status-dot--healthy .status-dot__inner {
+  background: var(--color-success);
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.4);
+}
+.status-dot--degraded .status-dot__inner {
+  background: var(--color-warning);
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.4);
+}
+.status-dot--offline .status-dot__inner {
+  background: var(--color-error);
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.4);
+}
+
+.status-dot__label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-transform: capitalize;
+}

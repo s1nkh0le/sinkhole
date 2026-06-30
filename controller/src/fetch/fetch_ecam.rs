@@ -1,17 +1,17 @@
-use std::time::Duration;
-use reqwest::Client;
-use tracing::log::trace;
-use shared::types::ecam_types::EcamEvent;
-use shared::types::routing::filter::ecam::FilterReplyEcamAndCursor;
 use crate::fetch::error::CtrlErr;
 use crate::fetch::extraction::extract_ok_data;
+use reqwest::Client;
+use shared::types::ecam_types::EcamEvent;
+use shared::types::routing::filter::ecam::FilterReplyEcamAndCursor;
+use std::time::Duration;
+use tracing::log::trace;
 
 /// GET /ecam
 pub async fn fetch_ecam(
-    http:   &Client,
-    base:   &str,
-    token:  &str,
-    since:  u64,
+    http: &Client,
+    base: &str,
+    token: &str,
+    since: u64,
 ) -> Result<(Vec<EcamEvent>, u64), CtrlErr> {
     let url = format!("{base}/ecam");
 
@@ -34,6 +34,6 @@ pub async fn fetch_ecam(
             Ok((env.events, env.next_since))
         }
         401 => Err(CtrlErr::Auth),
-        c   => Err(CtrlErr::Http(c)),
+        c => Err(CtrlErr::Http(c)),
     }
 }

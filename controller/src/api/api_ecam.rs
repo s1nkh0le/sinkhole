@@ -1,16 +1,15 @@
 use crate::db::query;
 use crate::state::ctrl::ControllerState;
+use axum::Json;
 use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use shared::api::err::ErrorEnvelope;
-use shared::api::ok::{ok, OkEnvelope};
+use shared::api::normalization::{clamp_limit, normalize_order, u64_to_i64_sat, validate_range};
+use shared::api::ok::{OkEnvelope, ok};
 use shared::types::ecam_types::EcamEvent;
 use utoipa::{IntoParams, ToSchema};
-use shared::api::normalization::{clamp_limit, normalize_order, u64_to_i64_sat, validate_range};
-
 
 /// Database level normalized query parameters for records query
 /// (Note: using i64 types for SQLite)
@@ -22,7 +21,6 @@ struct DBEcamNorm {
     limit: usize,
     asc: bool,
 }
-
 
 /// Build the normalized DB query or return a ready-made error envelope.
 fn build_ecam_norm(
@@ -39,11 +37,9 @@ fn build_ecam_norm(
     let asc = match normalize_order(order.as_deref()) {
         Ok(v) => v,
         Err(m) => {
-            return Err(
-                ErrorEnvelope::bad_request("sanitization", instance)
-                    .with_detail(m)
-                    .into_result()
-            )
+            return Err(ErrorEnvelope::bad_request("sanitization", instance)
+                .with_detail(m)
+                .into_result());
         }
     };
 
@@ -51,20 +47,16 @@ fn build_ecam_norm(
     let limit = match clamp_limit(limit, MAX_LIMIT) {
         Ok(v) => v,
         Err(m) => {
-            return Err(
-                ErrorEnvelope::bad_request("sanitization", instance)
-                    .with_detail(m)
-                    .into_result()
-            )
+            return Err(ErrorEnvelope::bad_request("sanitization", instance)
+                .with_detail(m)
+                .into_result());
         }
     };
 
     if let Err(m) = validate_range(since, until) {
-        return Err(
-            ErrorEnvelope::bad_request("sanitization", instance)
-                .with_detail(m)
-                .into_result()
-        );
+        return Err(ErrorEnvelope::bad_request("sanitization", instance)
+            .with_detail(m)
+            .into_result());
     }
 
     Ok(DBEcamNorm {
@@ -76,18 +68,18 @@ fn build_ecam_norm(
     })
 }
 
-
-
-
 /// Successful ECAM reply
 #[derive(Serialize, ToSchema)]
 pub struct EcamOkData {
     pub records: Vec<EcamEvent>,
+    /// Cursor to page **forward** in time (use with `order=asc`): pass back as `since`.
     pub next_since: u64,
+    /// Cursor to page **backward** in time (use with `order=desc`, the default):
+    /// pass back as `until`.
+    pub next_until: u64,
 }
 impl shared::api::ok::sealed::Sealed for EcamOkData {}
 impl shared::api::ok::OkData for EcamOkData {}
-
 
 /// Query format for /ecam
 #[derive(Deserialize, Debug, IntoParams)]
@@ -106,9 +98,7 @@ pub struct CtrlRequestGetQueryEcamAgg {
 #[utoipa::path(
     get,
     path = "/ecam",
-    params(
-        // ("ctrl_token" = String, Query,                              description = "Authentication token"),
-    ),
+    params(CtrlRequestGetQueryEcamAgg),
     responses(
         (status = 200, description = "OK",                          body = OkEnvelope<EcamOkData>),
         (status = 400, description = "Invalid query",               body = ErrorEnvelope),
@@ -131,14 +121,12 @@ pub async fn get_aggregated_ecam(
         q.order.clone(),
         instance.path(),
     ) {
-        Ok(n)  => n,
+        Ok(n) => n,
         Err(e) => return e,
     };
 
     ecam_core(state, norm, instance.path()).await
 }
-
-
 
 /// Query format for /services/{service_id}/ecam
 ///
@@ -159,8 +147,8 @@ pub struct CtrlRequestGetQueryEcamFromPort {
     path = "/services/{service_id}/ecam",
     params(EcamServicePath),
     params(
-        // ("ctrl_token" = String, Query,                          description = "Authentication token"),
-        ("service_id" = String, Path,                           description = "Service id")
+        ("service_id" = String, Path,                           description = "Service id"),
+        CtrlRequestGetQueryEcamFromPort,
     ),
     responses(
         (status = 200, description = "OK",                      body = OkEnvelope<EcamOkData>),
@@ -185,15 +173,12 @@ pub async fn get_service_ecam(
         q.order.clone(),
         instance.path(),
     ) {
-        Ok(n)  => n,
+        Ok(n) => n,
         Err(e) => return e,
     };
 
     ecam_core(state, norm, instance.path()).await
 }
-
-
-
 
 // Underlying DB-handler for ECAM queries
 #[inline]
@@ -203,10 +188,12 @@ async fn ecam_core(
     instance: &str,
 ) -> (StatusCode, Json<Value>) {
     // Optional: validate service existence if present
-    if let Some(ref sid) = q.service_id {
-        if !state.read().services.contains_key(sid) {
-            return ErrorEnvelope::not_found("service_not_found", instance).with_detail(format!("service_id={sid} not found")).into_result()
-        }
+    if let Some(ref sid) = q.service_id
+        && !state.read().services.contains_key(sid)
+    {
+        return ErrorEnvelope::not_found("service_not_found", instance)
+            .with_detail(format!("service_id={sid} not found"))
+            .into_result();
     }
 
     // Query DB (spawn_blocking)
@@ -218,11 +205,17 @@ async fn ecam_core(
     .await;
 
     match join_res {
-        Ok(Ok((events, next_since))) => ok(EcamOkData {
+        Ok(Ok((events, next_since, next_until))) => ok(EcamOkData {
             records: events,
-            next_since: u64::try_from(next_since).unwrap(),
+            // A cursor is never legitimately negative; clamp instead of panicking.
+            next_since: u64::try_from(next_since).unwrap_or(0),
+            next_until: u64::try_from(next_until).unwrap_or(0),
         }),
-        Ok(Err(e)) => ErrorEnvelope::internal("db_query_failure", instance).with_detail(e.to_string()).into_result(),
-        Err(e) => ErrorEnvelope::internal("db_query_failure_join", instance).with_detail(e.to_string()).into_result()
+        Ok(Err(e)) => ErrorEnvelope::internal("db_query_failure", instance)
+            .with_detail(e.to_string())
+            .into_result(),
+        Err(e) => ErrorEnvelope::internal("db_query_failure_join", instance)
+            .with_detail(e.to_string())
+            .into_result(),
     }
 }

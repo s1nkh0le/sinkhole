@@ -1,8 +1,8 @@
 use axum::body::Body;
-use axum::http::header::AUTHORIZATION;
 use axum::http::Request;
+use axum::http::header::AUTHORIZATION;
 
-const BEARER: &'static str = "Bearer ";
+const BEARER: &str = "Bearer ";
 
 // Extract "Authorization: Bearer <token>"
 pub fn bearer_token_from_header(req: &Request<Body>) -> Option<String> {
@@ -14,13 +14,4 @@ pub fn bearer_token_from_header(req: &Request<Body>) -> Option<String> {
     } else {
         None
     }
-}
-
-// Temporary fallback: ?ctrl_token=...
-pub fn token_from_query(req: &Request<Body>, token_field: &'static str) -> Option<String> {
-    req.uri().query().and_then(|q| {
-        form_urlencoded::parse(q.as_bytes())
-            .find(|(k, _)| k == token_field)
-            .map(|(_, v)| v.into_owned())
-    })
 }

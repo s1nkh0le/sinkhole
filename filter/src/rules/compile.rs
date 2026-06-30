@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
-use shared::utils::version::calc_version_ruleset;
 use crate::matcher::Matcher;
 use crate::matcher::always::AlwaysMatcher;
-use crate::matcher::method_regex::MethodRegexMatcher;
+use crate::matcher::bytes_core::BytesRegexCore;
+use crate::matcher::bytes_matcher::BytesMatcher;
+use crate::matcher::regex_matcher::RegexMatcher;
 use crate::matcher::session_idle::SessionIdleMatcher;
 use crate::matcher::session_lifetime::SessionLifetimeMatcher;
 use crate::matcher::size::SizeMatcher;
-use crate::matcher::status_regex::StatusRegexMatcher;
-use crate::matcher::types::CmpOp;
-use anyhow::{Result, anyhow, bail};
-use shared::types::ruleset_types::{FilterDef, MarkerDef, MatcherDef, RuleSetRaw};
+use crate::rules::legality::check_rule;
+use anyhow::{Result, anyhow};
 use shared::types::base_types::{Mode, RuleDirection, Scope};
+use shared::types::ruleset_types::{FilterDef, MarkerDef, MatcherDef, RuleSetRaw};
+use shared::utils::version::calc_version_ruleset;
 
 #[derive(Clone)]
 pub struct CompiledMarker {
@@ -41,10 +42,9 @@ pub struct CompiledFilter {
 #[derive(Debug, Clone)]
 pub struct MatcherMeta {
     pub comparator: String, // "regex" | "size"
-    pub target: String,     // e.g. "header:user-agent", "body", "stream", "path", "meta"
+    pub target: String,     // e.g. "header:user-agent", "body", "stream", "path", "always"
     pub condition: String,  // human‑readable: `regex /foo/` or `size > 1000`
 }
-
 
 #[derive(Clone)]
 pub struct CompiledRuleSet {
@@ -62,13 +62,13 @@ pub fn compile_ruleset(raw: &RuleSetRaw) -> Result<CompiledRuleSet> {
     let markers = raw
         .markers
         .iter()
-        .map(|m| compile_marker(m))
+        .map(compile_marker)
         .collect::<Result<Vec<_>>>()?;
 
     let filters = raw
         .filters
         .iter()
-        .map(|f| compile_filter(f))
+        .map(compile_filter)
         .collect::<Result<Vec<_>>>()?;
 
     Ok(CompiledRuleSet {
@@ -82,7 +82,7 @@ pub fn compile_ruleset(raw: &RuleSetRaw) -> Result<CompiledRuleSet> {
 // helpers
 // --------------------------------------------------
 fn compile_marker(m: &MarkerDef) -> Result<CompiledMarker> {
-    let (matcher, meta) = compile_matcher(&m.scope, &m.matcher)?;
+    let (matcher, meta) = compile_matcher(&m.scope, &m.matcher, m.direction)?;
     Ok(CompiledMarker {
         id: m.id.clone(),
         name: m.name.clone(),
@@ -95,7 +95,7 @@ fn compile_marker(m: &MarkerDef) -> Result<CompiledMarker> {
 }
 
 fn compile_filter(f: &FilterDef) -> Result<CompiledFilter> {
-    let (matcher, meta) = compile_matcher(&f.scope, &f.matcher)?;
+    let (matcher, meta) = compile_matcher(&f.scope, &f.matcher, f.direction)?;
     Ok(CompiledFilter {
         id: f.id.clone(),
         name: f.name.clone(),
@@ -110,71 +110,56 @@ fn compile_filter(f: &FilterDef) -> Result<CompiledFilter> {
     })
 }
 
-fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>, MatcherMeta)> {
+fn compile_matcher(
+    scope: &Scope,
+    def: &MatcherDef,
+    direction: RuleDirection,
+) -> Result<(Arc<dyn Matcher>, MatcherMeta)> {
+    // Legality is decided in exactly one place (`rules::legality`); compilation
+    // refuses anything that wouldn't pass validation, and never panics.
+    check_rule(*scope, def, direction).map_err(|e| anyhow!(e))?;
+
     use MatcherDef::*;
     match def {
-        StreamRegex { pattern, .. } => Ok((
-            Arc::new(crate::matcher::stream_regex::StreamRegex::new(
-                pattern, false,
-            )?),
-            MatcherMeta {
-                comparator: "regex".into(),
-                target: "stream".into(),
-                condition: format!("regex /{}/", pattern),
-            },
-        )),
+        StreamRegex {
+            pattern,
+            case_sensitive,
+        } => build_regex(*scope, pattern, *case_sensitive, None, "stream".into()),
         HeaderRegex {
             header_name,
             pattern,
-            ..
-        } => Ok((
-            Arc::new(crate::matcher::header_regex::HeaderRegex::new(
-                header_name,
-                pattern,
-                false,
-            )?),
-            MatcherMeta {
-                comparator: "regex".into(),
-                target: format!("header:{}", header_name.to_ascii_lowercase()),
-                condition: format!("regex /{}/", pattern),
-            },
-        )),
+            case_sensitive,
+        } => build_regex(
+            *scope,
+            pattern,
+            *case_sensitive,
+            Some(header_name),
+            format!("header:{}", header_name.to_ascii_lowercase()),
+        ),
         StatusRegex {
             pattern,
             case_sensitive,
-        } => {
-            let m = StatusRegexMatcher::new(pattern, *case_sensitive)
-                .map_err(|e| anyhow!("invalid status regex: {}", e))?;
-            Ok((
-                Arc::new(m),
-                MatcherMeta {
-                    comparator: format!("regex /{}/", pattern),
-                    target: "status".into(),
-                    condition: format!("regex /{}/", pattern),
-                },
-            ))
-        }
+        } => build_regex(*scope, pattern, *case_sensitive, None, "status".into()),
         Size {
             op,
             value,
             field_name,
         } => {
-            let cmp = parse_op(op)?; // your existing parser
-            let m = SizeMatcher {
-                op: cmp,
-                value: *value,
-                field_name: field_name.clone(),
-            };
+            let cmp = *op;
+            let m = SizeMatcher::new(cmp, *value, field_name.clone());
 
             let target = match scope {
                 Scope::HttpHeader => format!("headers[{}]", field_name.as_deref().unwrap_or("?")),
                 Scope::HttpPath => "path".into(),
                 Scope::HttpBody => "body".into(),
-                Scope::HttpMethod => "method".into(),
-                Scope::HttpStatus => "status".into(), // can't happen
                 Scope::Stream => "stream".into(),
-                Scope::Timing => "timing".into(), // can't happen
-                Scope::Meta => "meta".into(),
+                // Guaranteed unreachable by `check_rule`; keep compile total & panic-free.
+                other => {
+                    return Err(anyhow!(
+                        "size matcher is not allowed with scope {:?}",
+                        other
+                    ));
+                }
             };
 
             Ok((
@@ -186,41 +171,41 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
                 },
             ))
         }
-        PathRegex { pattern, .. } => Ok((
-            Arc::new(crate::matcher::path_regex::PathRegex::new(pattern, false)?),
-            MatcherMeta {
-                comparator: "regex".into(),
-                target: "path".into(),
-                condition: format!("regex /{}/", pattern),
+        PathRegex {
+            pattern,
+            case_sensitive,
+        } => build_regex(*scope, pattern, *case_sensitive, None, "path".into()),
+        BodyRegex {
+            pattern,
+            case_sensitive,
+        } => build_regex(*scope, pattern, *case_sensitive, None, "body".into()),
+        StreamBytes { pattern } => build_bytes(
+            *scope,
+            BytesRegexCore::new(pattern).map_err(|e| anyhow!("invalid byte-regex: {}", e)),
+            format!("bytes /{}/", pattern),
+            "stream".into(),
+        ),
+        BodyBytes { pattern } => build_bytes(
+            *scope,
+            BytesRegexCore::new(pattern).map_err(|e| anyhow!("invalid byte-regex: {}", e)),
+            format!("bytes /{}/", pattern),
+            "body".into(),
+        ),
+        BytesHex { value } => build_bytes(
+            *scope,
+            BytesRegexCore::from_hex(value).map_err(|e| anyhow!("invalid hex signature: {}", e)),
+            format!("hex {}", value),
+            match scope {
+                Scope::HttpBody => "body".into(),
+                _ => "stream".into(),
             },
-        )),
-        BodyRegex { pattern, .. } => Ok((
-            Arc::new(crate::matcher::body_regex::BodyRegex::new(pattern, false)?),
-            MatcherMeta {
-                comparator: "regex".into(),
-                target: "body".into(),
-                condition: format!("regex /{}/", pattern),
-            },
-        )),
+        ),
         MethodRegex {
             pattern,
             case_sensitive,
-        } => {
-            let m = MethodRegexMatcher::new(pattern, *case_sensitive)
-                .map_err(|e| anyhow!("invalid regex for method: {}", e))?;
-
-            Ok((
-                Arc::new(m),
-                MatcherMeta {
-                    comparator: format!("regex /{}/", pattern),
-                    target: "method".into(),
-                    condition: format!("regex /{}/", pattern),
-                },
-            ))
-        }
+        } => build_regex(*scope, pattern, *case_sensitive, None, "method".into()),
         SessionLifetime { op, value } => {
-            let cmp = parse_op(op)?;
-            ensure_timing_scope(*scope, "session_lifetime")?;
+            let cmp = *op;
             Ok((
                 Arc::new(SessionLifetimeMatcher {
                     op: cmp,
@@ -234,8 +219,7 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
             ))
         }
         SessionIdle { op, value } => {
-            let cmp = parse_op(op)?;
-            ensure_timing_scope(*scope, "session_idle")?;
+            let cmp = *op;
             Ok((
                 Arc::new(SessionIdleMatcher {
                     op: cmp,
@@ -252,41 +236,47 @@ fn compile_matcher(scope: &Scope, def: &MatcherDef) -> Result<(Arc<dyn Matcher>,
             Arc::new(AlwaysMatcher::new(*value)),
             MatcherMeta {
                 comparator: "const".into(),
-                target: "meta".into(),
+                target: "always".into(),
                 condition: format!("always {}", value),
             },
         )),
     }
 }
 
-fn ensure_scope(actual: &Scope, expected: Scope, mname: &str) -> Result<()> {
-    if *actual != expected {
-        Err(anyhow!(
-            "matcher '{}' only allowed with scope {:?}",
-            mname,
-            expected
-        ))
-    } else {
-        Ok(())
-    }
+/// Build a [`BytesMatcher`] + telemetry metadata for a byte-regex / hex scope.
+fn build_bytes(
+    scope: Scope,
+    core: Result<BytesRegexCore>,
+    condition: String,
+    target: String,
+) -> Result<(Arc<dyn Matcher>, MatcherMeta)> {
+    let core = core?;
+    Ok((
+        Arc::new(BytesMatcher::new(scope, core)),
+        MatcherMeta {
+            comparator: "bytes".into(),
+            target,
+            condition,
+        },
+    ))
 }
 
-fn ensure_timing_scope(scope: Scope, ctx: &str) -> Result<()> {
-    if scope != Scope::Timing {
-        bail!("{} matcher must use scope 'timing'", ctx);
-    }
-    Ok(())
-}
-
-fn parse_op(s: &str) -> Result<CmpOp> {
-    use CmpOp::*;
-    Ok(match s {
-        ">" => Gt,
-        ">=" => Ge,
-        "<" => Lt,
-        "<=" => Le,
-        "==" => Eq,
-        "!=" => Ne,
-        _ => return Err(anyhow!("invalid comparator op '{}'", s)),
-    })
+/// Build a unified [`RegexMatcher`] + its telemetry metadata for any regex scope.
+fn build_regex(
+    scope: Scope,
+    pattern: &str,
+    case_sensitive: bool,
+    header_name: Option<&str>,
+    target: String,
+) -> Result<(Arc<dyn Matcher>, MatcherMeta)> {
+    let m = RegexMatcher::new(scope, pattern, case_sensitive, header_name)
+        .map_err(|e| anyhow!("invalid regex /{}/: {}", pattern, e))?;
+    Ok((
+        Arc::new(m),
+        MatcherMeta {
+            comparator: "regex".into(),
+            target,
+            condition: format!("regex /{}/", pattern),
+        },
+    ))
 }

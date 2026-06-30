@@ -1,5 +1,6 @@
 use crate::config::env::{ControllerCfg, ServiceCfg};
-use crate::db::boot::{read_boot_cursors, BootCursors};
+use crate::db::boot::{BootCursors, read_boot_cursors};
+use crate::db::commands::DbHandle;
 use crate::state::health::Health;
 use parking_lot::RwLock;
 use reqwest::Client;
@@ -8,7 +9,6 @@ use shared::types::snapshot_types::PortSnapshot;
 use std::collections::HashMap;
 use std::sync::Arc;
 use utoipa::ToSchema;
-use crate::db::commands::DbHandle;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Port {
@@ -22,6 +22,12 @@ pub struct Port {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortCursors {
     pub next_records_since: u64,
+}
+
+impl Default for Port {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Port {
@@ -68,12 +74,15 @@ impl Service {
             let port = snap.info.public;
             seen.insert(port);
 
-            let p = self.ports.entry(port).or_insert_with(Port::new);
+            let p = self.ports.entry(port).or_default();
 
             // initialise record cursor from boot map if this is first time
             if p.cursors.next_records_since == 0 {
                 // We remove the entry so that we don't re-apply it accidentally
-                if let Some(next) = &boot_cursors.records_cursors.remove(&(svc_id.to_string(), port)) {
+                if let Some(next) = &boot_cursors
+                    .records_cursors
+                    .remove(&(svc_id.to_string(), port))
+                {
                     p.cursors.next_records_since = *next;
                 }
             }
@@ -91,7 +100,6 @@ impl Service {
         self.ports.retain(|port, _| seen.contains(port));
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
 pub struct ServiceMetadata {
@@ -115,41 +123,140 @@ pub struct ControllerState {
     pub inner: Arc<RwLock<Inner>>,
 }
 
+/// Build an in-memory `Service` in the initial (degraded, no ports) state.
+fn mk_service(cfg: ServiceCfg, metadata: ServiceMetadata, next_ecam_since: u64) -> Service {
+    Service {
+        cfg,
+        ports: HashMap::new(),
+        service_cursors: ServiceCursors { next_ecam_since },
+        health: Health::Degraded {
+            faults: HashMap::new(),
+            last_sync_ns: 0,
+        },
+        metadata,
+    }
+}
+
+/// Reject a persisted service row that can't be a valid service. With hydration
+/// on we'd rather refuse to start than serve a partial/inconsistent fleet.
+fn validate_persisted_service(cfg: &ServiceCfg) -> anyhow::Result<()> {
+    let hint = "fix the DB row or disable SINKHOLE_CONTROLLER_DB_HYDRATE";
+    if cfg.id.trim().is_empty() {
+        anyhow::bail!("persisted service has an empty id; fleet DB inconsistent ({hint})");
+    }
+    if cfg.token.trim().is_empty() {
+        anyhow::bail!(
+            "persisted service '{}' has an empty token; fleet DB inconsistent ({hint})",
+            cfg.id
+        );
+    }
+    if !cfg.base_url.starts_with("http://") && !cfg.base_url.starts_with("https://") {
+        anyhow::bail!(
+            "persisted service '{}' has an invalid base_url '{}'; fleet DB inconsistent ({hint})",
+            cfg.id,
+            cfg.base_url
+        );
+    }
+    Ok(())
+}
+
 impl ControllerState {
     pub fn new(env_cfg: crate::env::Config, db: DbHandle, http: Client) -> anyhow::Result<Self> {
-        // Services hashmap, initialized as empty
-        let mut services = HashMap::new();
-
-        // Reading boot cursors from the database, so that when a previously-existing service is added,
-        // we can pick up the fetching process where we left off
+        // Cursors are derived from the records/ecam tables, independent of the
+        // fleet hydration below, so record/event pulls always resume correctly.
         let boot_cursors: BootCursors = read_boot_cursors(&db.path)?;
 
-        // We start booting services from the environment variables
-        for svc in env_cfg.services {
-            // If the service has an entry, we extract it to store insid
-            let boot_ecam_since = boot_cursors.ecam_cursors.get(&svc.id).copied().unwrap_or(0);
+        let crate::env::Config {
+            controller,
+            services: env_services,
+            service_names,
+        } = env_cfg;
+        let hydrate = controller.db_hydrate;
 
-            services.insert(
-                svc.id.clone(),
-                Service {
-                    cfg: svc,
-                    ports: HashMap::new(),
-                    service_cursors: ServiceCursors {
-                        next_ecam_since: boot_ecam_since,
-                    },
-                    health: Health::Degraded {
-                        faults: HashMap::new(),
-                        last_sync_ns: 0
-                    },
-                    metadata: ServiceMetadata::default(),
-                },
-            );
+        let next_ecam = |id: &str| boot_cursors.ecam_cursors.get(id).copied().unwrap_or(0);
+
+        let mut services: HashMap<String, Service> = HashMap::new();
+
+        // 1) Persisted fleet (DB) — only when hydration is enabled. Any read
+        //    failure or invalid row is fatal: we verify the fleet before serving,
+        //    rather than silently come up with a partial/inconsistent fleet.
+        if hydrate {
+            for ps in crate::db::util::read_all_services(&db.path)? {
+                validate_persisted_service(&ps.cfg)?;
+                let id = ps.cfg.id.clone();
+                let next = next_ecam(&id);
+                services.insert(id.clone(), mk_service(ps.cfg, ps.meta, next));
+            }
+        }
+
+        // 2) Merge env-declared services on top.
+        let mut newcomers: Vec<(ServiceCfg, ServiceMetadata)> = Vec::new();
+        for cfg in env_services {
+            if let Some(existing) = services.get(&cfg.id) {
+                // Same id in env and DB: the stable connection data MUST agree.
+                // We never silently pick one — diverging config is a fatal,
+                // explicit boot error.
+                if existing.cfg.base_url != cfg.base_url || existing.cfg.token != cfg.token {
+                    // Report *which* fields diverge without printing the tokens
+                    // themselves — boot errors land in logs/scrollback/CI output.
+                    let url_diff = if existing.cfg.base_url != cfg.base_url {
+                        format!(
+                            "url differs (env={}, db={})",
+                            cfg.base_url, existing.cfg.base_url
+                        )
+                    } else {
+                        "url matches".to_string()
+                    };
+                    let tok_diff = if existing.cfg.token != cfg.token {
+                        "token differs"
+                    } else {
+                        "token matches"
+                    };
+                    anyhow::bail!(
+                        "service id '{id}' is declared in both the environment and the persisted \
+                         DB with different connection data: {url_diff}; {tok_diff}. \
+                         Edit SINKHOLE_CONTROLLER_SERVICES to match, or disable \
+                         SINKHOLE_CONTROLLER_DB_HYDRATE.",
+                        id = cfg.id,
+                    );
+                }
+                // Matches → the DB entry (and its metadata) already wins; the env
+                // `name` is intentionally ignored when the DB already has the service.
+            } else {
+                // New service from env: seed its display name from the env config.
+                let mut metadata = ServiceMetadata::default();
+                if let Some(name) = service_names.get(&cfg.id) {
+                    metadata.name = Some(name.clone());
+                }
+                let next = next_ecam(&cfg.id);
+                services.insert(
+                    cfg.id.clone(),
+                    mk_service(cfg.clone(), metadata.clone(), next),
+                );
+                if hydrate {
+                    newcomers.push((cfg, metadata));
+                }
+            }
+        }
+
+        // 3) Persist env newcomers so the whole fleet lives in the DB and a
+        //    subsequent restart brings everything back without re-declaring env.
+        if hydrate && !newcomers.is_empty() {
+            let conn = crate::db::util::open(&db.path)?;
+            let now = shared::utils::time::now_ns() as i64;
+            for (cfg, meta) in &newcomers {
+                crate::db::util::upsert_service(&conn, cfg, meta, now);
+            }
         }
 
         Ok(Self {
-            cfg: Arc::new(env_cfg.controller),
+            cfg: Arc::new(controller),
             http,
-            inner: Arc::new(RwLock::new(Inner { services, db, boot_cursors, })),
+            inner: Arc::new(RwLock::new(Inner {
+                services,
+                db,
+                boot_cursors,
+            })),
         })
     }
 

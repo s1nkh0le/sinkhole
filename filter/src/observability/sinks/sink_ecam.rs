@@ -1,12 +1,11 @@
 use crate::observability::sinks;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use parking_lot::RwLock;
 pub(crate) use shared::types::ecam_types::{EcamEvent, Origin, Severity};
 use shared::utils::time::now_ns;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
-use strum_macros::Display;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tracing::error;
 use tracing::warn;
 
@@ -27,7 +26,7 @@ impl EcamSink {
     }
 
     fn push(&self, ev: EcamEvent) {
-        let mut guard = self.inner.write().unwrap();
+        let mut guard = self.inner.write();
         if guard.len() == MAX_ECAM_EVENTS {
             guard.pop_front(); // evict oldest
         }
@@ -37,7 +36,7 @@ impl EcamSink {
     /// Copy out all events newer than `after_ns` (inclusive).
     /// If `after_ns == 0` you get the full buffer (capped).
     pub fn snapshot(&self, after_ns: u64) -> Vec<EcamEvent> {
-        let guard = self.inner.read().unwrap();
+        let guard = self.inner.read();
         guard
             .iter()
             .filter(|e| e.ts_ns >= after_ns)

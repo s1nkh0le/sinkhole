@@ -1,5 +1,6 @@
+use crate::rules::legality::check_rule;
+use shared::types::base_types::Scope;
 use shared::types::ruleset_types::*;
-use shared::types::base_types::{RuleDirection, Scope};
 use std::collections::HashSet;
 
 // ---------------------------------------------
@@ -23,33 +24,6 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
         }
     }
 
-    // ------------- matcher⇄scope table -------------
-    fn matcher_scope_ok(scope: Scope, m: &MatcherDef) -> bool {
-        use MatcherDef::*;
-        match (scope, m) {
-            (Scope::Stream, StreamRegex { .. }) => true,
-
-            (Scope::HttpPath, PathRegex { .. }) => true,
-            (Scope::HttpBody, BodyRegex { .. }) => true,
-            (Scope::HttpHeader, HeaderRegex { .. }) => true,
-            (Scope::HttpMethod, MethodRegex { .. }) => true,
-            (Scope::HttpStatus, StatusRegex { .. }) => true,
-
-            (Scope::Timing, SessionLifetime { .. }) => true,
-            (Scope::Timing, SessionIdle { .. }) => true,
-
-            // Size is universal, except when checking the status code
-            (Scope::HttpStatus, Size { .. }) => false,
-            (Scope::HttpMethod, Size { .. }) => false,
-            (Scope::Timing, Size { .. }) => false,
-            (_, Size { .. }) => true,
-
-            // always is ok with any scope
-            (_, Always { .. }) => true,
-            _ => false,
-        }
-    }
-
     // ------------- iterate markers -------------
     for m in &rs.markers {
         check_id(&m.id, &mut ids, &mut errs);
@@ -62,31 +36,9 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             ));
         }
 
-        // matcher vs scope
-        if !matcher_scope_ok(m.scope, &m.matcher) {
-            errs.push(format!(
-                "markers[id={}].matcher type doesn't match scope {:?}",
-                m.id, m.scope
-            ));
-        }
-
-        // ---- forbid inbound status scope -------------------------------
-        if m.scope == Scope::HttpStatus && m.direction == RuleDirection::Inbound {
-            errs.push(format!(
-                "markers[id={}].direction inbound not allowed with scope http.status",
-                m.id
-            ));
-        }
-
-        if matches!(
-            m.matcher,
-            MatcherDef::SessionLifetime { .. } | MatcherDef::SessionIdle { .. }
-        ) && m.direction != RuleDirection::Both
-        {
-            errs.push(format!(
-                "markers[id={}]: timing scope requires direction='both'",
-                m.id
-            ));
+        // matcher⇄scope⇄direction legality (single source of truth)
+        if let Err(reason) = check_rule(m.scope, &m.matcher, m.direction) {
+            errs.push(format!("markers[id={}]: {}", m.id, reason));
         }
 
         let ctx = format!("markers[id={}]", m.id);
@@ -106,29 +58,8 @@ pub fn validate_ruleset(rs: &RuleSetRaw, enabled_scopes: &HashSet<Scope>) -> Vec
             ));
         }
 
-        if !matcher_scope_ok(f.scope, &f.matcher) {
-            errs.push(format!(
-                "filters[id={}].matcher type doesn't match scope {:?}",
-                f.id, f.scope
-            ));
-        }
-
-        if f.scope == Scope::HttpStatus && f.direction == RuleDirection::Inbound {
-            errs.push(format!(
-                "filters[id={}].direction inbound not allowed with scope http.status",
-                f.id
-            ));
-        }
-
-        if matches!(
-            f.matcher,
-            MatcherDef::SessionLifetime { .. } | MatcherDef::SessionIdle { .. }
-        ) && f.direction != RuleDirection::Both
-        {
-            errs.push(format!(
-                "filters[id={}]: timing scope requires direction='both'",
-                f.id
-            ));
+        if let Err(reason) = check_rule(f.scope, &f.matcher, f.direction) {
+            errs.push(format!("filters[id={}]: {}", f.id, reason));
         }
 
         let ctx = format!("filters[id={}]", f.id);
@@ -163,5 +94,128 @@ fn validate_size_field(scope: Scope, field_name: Option<&str>, ctx: &str, errs: 
                 ));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::types::base_types::{CmpOp, Mode, RuleDirection};
+    use shared::types::ruleset_types::{FilterDef, MarkerDef};
+
+    fn all_scopes() -> HashSet<Scope> {
+        [
+            Scope::Stream,
+            Scope::HttpHeader,
+            Scope::HttpPath,
+            Scope::HttpBody,
+            Scope::HttpMethod,
+            Scope::HttpStatus,
+            Scope::Timing,
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn marker(id: &str, scope: Scope, dir: RuleDirection, matcher: MatcherDef) -> MarkerDef {
+        MarkerDef {
+            id: id.into(),
+            name: None,
+            direction: dir,
+            scope,
+            matcher,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn accepts_valid_ruleset() {
+        let rs = RuleSetRaw {
+            markers: vec![marker(
+                "m1",
+                Scope::HttpPath,
+                RuleDirection::Inbound,
+                MatcherDef::PathRegex {
+                    pattern: "/admin".into(),
+                    case_sensitive: false,
+                },
+            )],
+            filters: vec![FilterDef {
+                id: "f1".into(),
+                name: None,
+                direction: RuleDirection::Inbound,
+                scope: Scope::HttpPath,
+                matcher: MatcherDef::PathRegex {
+                    pattern: "/x".into(),
+                    case_sensitive: false,
+                },
+                mode: Mode::Blacklist,
+                needed_markers_all: vec!["m1".into()],
+                needed_markers_any: vec![],
+                enabled: true,
+            }],
+            commit_message: None,
+        };
+        assert!(validate_ruleset(&rs, &all_scopes()).is_empty());
+    }
+
+    #[test]
+    fn rejects_scope_matcher_mismatch() {
+        let rs = RuleSetRaw {
+            markers: vec![marker(
+                "m1",
+                Scope::HttpBody,
+                RuleDirection::Inbound,
+                MatcherDef::PathRegex {
+                    pattern: "x".into(),
+                    case_sensitive: false,
+                },
+            )],
+            filters: vec![],
+            commit_message: None,
+        };
+        assert!(!validate_ruleset(&rs, &all_scopes()).is_empty());
+    }
+
+    #[test]
+    fn rejects_size_on_header_without_field_name() {
+        let rs = RuleSetRaw {
+            markers: vec![marker(
+                "m1",
+                Scope::HttpHeader,
+                RuleDirection::Inbound,
+                MatcherDef::Size {
+                    op: CmpOp::Gt,
+                    value: 10,
+                    field_name: None,
+                },
+            )],
+            filters: vec![],
+            commit_message: None,
+        };
+        assert!(!validate_ruleset(&rs, &all_scopes()).is_empty());
+    }
+
+    #[test]
+    fn rejects_unknown_gating_marker() {
+        let rs = RuleSetRaw {
+            markers: vec![],
+            filters: vec![FilterDef {
+                id: "f1".into(),
+                name: None,
+                direction: RuleDirection::Inbound,
+                scope: Scope::Stream,
+                matcher: MatcherDef::StreamRegex {
+                    pattern: "x".into(),
+                    case_sensitive: false,
+                },
+                mode: Mode::Blacklist,
+                needed_markers_all: vec!["ghost".into()],
+                needed_markers_any: vec![],
+                enabled: true,
+            }],
+            commit_message: None,
+        };
+        assert!(!validate_ruleset(&rs, &all_scopes()).is_empty());
     }
 }

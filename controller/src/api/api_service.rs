@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
+use crate::supervisor::supervisor::Supervisor;
 use crate::{env::ServiceCfg, state::ctrl::ControllerState};
 use axum::{
+    Json,
     extract::{OriginalUri, Path, State},
     http::StatusCode,
-    Json,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use shared::api::err::ErrorEnvelope;
-use shared::api::ok::{ok, OkEnvelope};
+use shared::api::ok::{OkEnvelope, ok};
 use utoipa::ToSchema;
-use crate::supervisor::supervisor::Supervisor;
 
 /// Request body for adding a new service (runtime).
 #[derive(Debug, Deserialize, ToSchema)]
@@ -58,9 +58,9 @@ fn normalize_base_url(u: &str) -> String {
 }
 
 async fn quick_ping(http: &Client, base: &str, token: &str) -> Result<(), String> {
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
     let fut = http
-        .get(&format!("{base}/auth/ping"))
+        .get(format!("{base}/auth/ping"))
         .bearer_auth(token)
         .send();
     let resp = timeout(Duration::from_secs(3), fut)
@@ -81,9 +81,6 @@ async fn quick_ping(http: &Client, base: &str, token: &str) -> Result<(), String
 #[utoipa::path(
     put,
     path = "/services/new",
-    params(
-        // ("ctrl_token" = String, Query,                                          description = "Authentication token")
-    ),
     request_body = CtrlServiceAddRequest,
     responses(
         (status = 200, description = "OK",                                      body = OkEnvelope<CtrlServiceAddOkData>),
@@ -123,20 +120,35 @@ pub async fn put_service_supervisor_new(
     }
 
     // 2) Optional preflight check (no state changes)
-    if req.check_health_before_adding {
-        if let Err(msg) = quick_ping(&state.http, &base, &req.token).await {
-            let (code, title) = if msg.contains("unauthorized") {
-                (StatusCode::BAD_REQUEST, "Bad filter token")
-            } else if msg.contains("timeout") {
-                (StatusCode::BAD_GATEWAY, "Filter timed out")
-            } else {
-                (StatusCode::BAD_GATEWAY, "Filter unreachable")
-            };
-            return ErrorEnvelope::bad_request("filter_validation_failed", uri.path())
-                .with_title(title)
-                .with_detail(format!("{} ({})", title, msg))
-                .into_result();
+    if req.check_health_before_adding
+        && let Err(msg) = quick_ping(&state.http, &base, &req.token).await
+    {
+        let title = if msg.contains("unauthorized") {
+            "Bad filter token"
+        } else if msg.contains("timeout") {
+            "Filter timed out"
+        } else {
+            "Filter unreachable"
+        };
+        let mut detail = format!("{title} ({msg})");
+        // Very common footgun: a controller running in a container can't reach
+        // the host's loopback. If the address is loopback and we couldn't
+        // authenticate-or-connect, nudge toward the right address.
+        let loopback = ["localhost", "127.0.0.1", "[::1]"]
+            .iter()
+            .any(|h| base.contains(h));
+        if loopback && !msg.contains("unauthorized") {
+            detail.push_str(
+                ". If the controller runs in a container, 'localhost' is the container \
+                     itself — not the host. Use the filter's docker network name (e.g. \
+                     http://filter-<name>:<control-port>) on a shared network, or \
+                     host.docker.internal / the host's LAN IP.",
+            );
         }
+        return ErrorEnvelope::bad_request("filter_validation_failed", uri.path())
+            .with_title(title)
+            .with_detail(detail)
+            .into_result();
     }
 
     // 3) Build cfg and hand off to supervisor
@@ -144,26 +156,44 @@ pub async fn put_service_supervisor_new(
         id: id.to_string(),
         base_url: base.clone(),
         token: req.token.clone(),
-        name: req.name.clone(),
     };
 
-    match supervisor.add_service(cfg.clone()).await {
-        Ok(()) => ok(CtrlServiceAddOkData { service_id: cfg.id }),
-        Err(e) => {
-            // Map “already exists” to 409; everything else → 500
-            let msg = e.to_string();
-            if msg.contains("already exists") {
-                return ErrorEnvelope::conflict("service_exists", uri.path())
-                    .with_title("Service already exists")
-                    .with_detail(format!("service_id '{id}' already present"))
-                    .into_result();
-            }
-            ErrorEnvelope::internal("supervisor_spawn_failed", uri.path())
-                .with_title("Unable to start background tasks")
-                .with_detail(msg)
-                .into_result()
+    if let Err(e) = supervisor.add_service(cfg.clone()).await {
+        // Map “already exists” to 409; everything else → 500
+        let msg = e.to_string();
+        if msg.contains("already exists") {
+            return ErrorEnvelope::conflict("service_exists", uri.path())
+                .with_title("Service already exists")
+                .with_detail(format!("service_id '{id}' already present"))
+                .into_result();
         }
+        return ErrorEnvelope::internal("supervisor_spawn_failed", uri.path())
+            .with_title("Unable to start background tasks")
+            .with_detail(msg)
+            .into_result();
     }
+
+    // 4) Apply the optional display name in memory (metadata is the single home
+    //    for names), then read back the resolved metadata.
+    let meta = {
+        let mut w = state.write();
+        w.services.get_mut(&cfg.id).map(|svc| {
+            if let Some(name) = req.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                svc.metadata.name = Some(name.to_string());
+            }
+            svc.metadata.clone()
+        })
+    };
+
+    // 5) Persist the service (connection config + metadata) so the fleet is
+    //    durable across restarts — only when hydration is enabled.
+    if state.cfg().db_hydrate
+        && let Some(meta) = meta
+    {
+        crate::db::insertion::persist_service(&state.db(), &cfg, &meta).await;
+    }
+
+    ok(CtrlServiceAddOkData { service_id: cfg.id })
 }
 
 /// /services/{service_id}/delete
@@ -173,7 +203,6 @@ pub async fn put_service_supervisor_new(
     delete,
     path = "/services/{service_id}/delete",
     params(
-        // ("ctrl_token" = String, Query,                              description = "Authentication token"),
         ("service_id" = String, Path,                               description = "Service id"),
     ),
     responses(
@@ -206,8 +235,16 @@ pub async fn delete_service_supervisor(
     }
 
     // 2) drop from state
-    let mut w = state.write();
-    w.services.remove(&service_id);
+    {
+        let mut w = state.write();
+        w.services.remove(&service_id);
+    }
+
+    // 3) drop the persisted row so the removal is durable (when hydration is on).
+    //    Records/ecam/cursors stay, so re-adding the same id later still resumes.
+    if state.cfg().db_hydrate {
+        crate::db::insertion::delete_service_row(&state.db(), &service_id).await;
+    }
 
     ok(CtrlServiceDeleteOkData { service_id })
 }

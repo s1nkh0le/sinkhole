@@ -1,4 +1,4 @@
-use crate::db::commands::{FilterDbCmd, DbHandle};
+use crate::db::commands::{DbHandle, FilterDbCmd};
 use crate::observability::sinks;
 use once_cell::sync::OnceCell;
 use shared::types::record_types::EvaluationRecord;
@@ -16,15 +16,19 @@ fn push_to_db(rec: &EvaluationRecord) {
 }
 
 pub fn record(rec: &EvaluationRecord) {
-    let log_stdout = sinks::TARGETS
-        .sinks_stdout
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let push_db = sinks::TARGETS
-        .sinks_emit
-        .load(std::sync::atomic::Ordering::Relaxed);
+    use std::sync::atomic::Ordering::Relaxed;
+    // Per-message records are high-volume traffic spam: only echo them to stdout
+    // when stdout sinks are on *and* we're in debug mode. ECAM operational events
+    // (sink_ecam) still follow `sinks_stdout` alone. Either way they go to the DB.
+    let log_stdout =
+        sinks::TARGETS.sinks_stdout.load(Relaxed) && sinks::TARGETS.debug.load(Relaxed);
+    let push_db = sinks::TARGETS.sinks_emit.load(Relaxed);
 
     if log_stdout {
-        println!("{}", serde_json::to_string(rec).unwrap());
+        // Best-effort stdout echo; never let a serialization hiccup panic the proxy.
+        if let Ok(json) = serde_json::to_string(rec) {
+            println!("{json}");
+        }
     }
 
     if push_db {

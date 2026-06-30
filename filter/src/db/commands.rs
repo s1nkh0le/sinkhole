@@ -1,12 +1,14 @@
+use crate::db::query_hydration::load_ruleset_history;
+use crate::db::query_insert::{reserve_conn_id_block, save_config_row, save_ruleset_row};
 use crate::db::schema::init_schema;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use rusqlite::{Connection, params};
 use shared::types::record_types::EvaluationRecord;
+use shared::types::routing::filter::ruleset::RulesetHistoryEntry;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tracing::{info};
-use crate::db::query_insert::{save_config_row, save_ruleset_row};
+use tokio::sync::{mpsc, oneshot};
+use tracing::info;
 
 #[derive(Clone)]
 pub struct DbHandle {
@@ -27,6 +29,15 @@ pub enum FilterDbCmd {
         upstream_port: u16,
         json: String,
         ts_ns: i64,
+    },
+    /// Reserve the next block of connection ids; replies with `(base, ceiling)`.
+    ReserveConnIds {
+        reply: oneshot::Sender<(u64, u64)>,
+    },
+    /// Load a port's full ruleset publish history (newest first).
+    LoadRulesetHistory {
+        port: u16,
+        reply: oneshot::Sender<Vec<RulesetHistoryEntry>>,
     },
     Shutdown,
 }
@@ -56,8 +67,8 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                     match cmd {
                         FilterDbCmd::InsertRecord(rec) => {
                             rec_buf.push(rec);
-                            if rec_buf.len() >= 512 {
-                                if let Err(e) = flush_records(&mut conn, &mut rec_buf) {
+                            if rec_buf.len() >= 512
+                                && let Err(e) = flush_records(&mut conn, &mut rec_buf) {
                                     sink_ecam::record(
                                         Severity::Error,
                                         Origin::DB,
@@ -65,7 +76,6 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                                         None,
                                     );
                                 }
-                            }
                         }
                         FilterDbCmd::SaveRuleset { port, version, json, ts_ns } => {
                             if let Err(e) = save_ruleset_row(&mut conn, port, &version, &json, ts_ns) {
@@ -87,6 +97,35 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                                 );
                             }
                         }
+                        FilterDbCmd::ReserveConnIds { reply } => {
+                            let block = match reserve_conn_id_block(&mut conn) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    sink_ecam::record(
+                                        Severity::Error,
+                                        Origin::DB,
+                                        format!("[init_db()] reserve_conn_id_block() failed, error={}", e),
+                                        None,
+                                    );
+                                    // Degraded: hand out a large in-process range so the
+                                    // proxy keeps assigning (unique within this run).
+                                    (1, u64::MAX)
+                                }
+                            };
+                            let _ = reply.send(block);
+                        }
+                        FilterDbCmd::LoadRulesetHistory { port, reply } => {
+                            let entries = load_ruleset_history(&conn, port).unwrap_or_else(|e| {
+                                sink_ecam::record(
+                                    Severity::Error,
+                                    Origin::DB,
+                                    format!("[init_db()] load_ruleset_history() failed, error={}", e),
+                                    None,
+                                );
+                                Vec::new()
+                            });
+                            let _ = reply.send(entries);
+                        }
                         FilterDbCmd::Shutdown => {
                             let _ = flush_records(&mut conn, &mut rec_buf);
                             info!("DB actor shutdown");
@@ -95,8 +134,8 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                     }
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-                    if !rec_buf.is_empty() {
-                        if let Err(e) = flush_records(&mut conn, &mut rec_buf) {
+                    if !rec_buf.is_empty()
+                        && let Err(e) = flush_records(&mut conn, &mut rec_buf) {
                             sink_ecam::record(
                                 Severity::Error,
                                 Origin::DB,
@@ -104,7 +143,6 @@ pub fn init_db(path: &str) -> anyhow::Result<DbHandle> {
                                 None,
                             );
                         }
-                    }
                 }
             }
         }

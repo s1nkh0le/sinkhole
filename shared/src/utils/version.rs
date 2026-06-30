@@ -1,6 +1,6 @@
-use fnv_rs::{Fnv64, FnvHasher};
-use serde_json::{json, Value};
 use crate::types::ruleset_types::*;
+use fnv_rs::{Fnv64, FnvHasher};
+use serde_json::{Value, json};
 
 /// Calculates hash of `RuleSetRaw`, by hashing its `markers` and `filters`
 #[inline]
@@ -22,14 +22,14 @@ pub fn calc_version_ruleset(raw: &RuleSetRaw) -> String {
 /// Calculates hash of `PortInfo`'s data, excluding version fields, by hashing its `name`, `comment`, `hex_color`, `public`, `upstream`, and `enabled_scopes`
 #[inline]
 pub fn calc_version_info(raw: &PortInfo) -> String {
-    let mut name = raw.clone().name.unwrap_or("no_name".to_string());
-    let mut comment = raw.clone().comment.unwrap_or("no_comment".to_string());
-    let mut hex_color = raw.clone().hex_color.unwrap_or("no_hex_color".to_string());
-    let mut public = raw.clone().public;
-    let mut upstream = raw.clone().upstream;
+    let name = raw.clone().name.unwrap_or("no_name".to_string());
+    let comment = raw.clone().comment.unwrap_or("no_comment".to_string());
+    let hex_color = raw.clone().hex_color.unwrap_or("no_hex_color".to_string());
+    let public = raw.clone().public;
+    let upstream = raw.clone().upstream;
     let mut scopes = raw.clone().enabled_scopes;
 
-    scopes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+    scopes.sort_by_key(|a| a.to_string());
 
     let canon = json!({
         "name": name,
@@ -43,7 +43,6 @@ pub fn calc_version_info(raw: &PortInfo) -> String {
     calc_hash_impl(canon)
 }
 
-
 /// Calculates the combined hash of the ruleset and port info by copying the hashes from `PortInfo`
 #[inline]
 pub fn calc_version_combined_copyover(version_info: &str, version_ruleset: &str) -> String {
@@ -55,12 +54,11 @@ pub fn calc_version_combined_copyover(version_info: &str, version_ruleset: &str)
     calc_hash_impl(canon)
 }
 
-
 /// Hashes everything, and then hashes the hashes. What a comment.
 #[inline]
 pub fn calc_version_combined_compute(port: &PortInfo, ruleset: &RuleSetRaw) -> String {
-    let mut version_portinfo = calc_version_info(port);
-    let mut version_ruleset = calc_version_ruleset(ruleset);
+    let version_portinfo = calc_version_info(port);
+    let version_ruleset = calc_version_ruleset(ruleset);
 
     let canon = json!({
         "version_portinfo": version_portinfo,

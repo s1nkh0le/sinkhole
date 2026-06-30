@@ -1,7 +1,6 @@
-use std::collections::HashSet;
+use crate::types::base_types::{Decision, MatchStatus, Protocol, Scope};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::types::base_types::{Decision, MatchStatus, Scope};
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct HttpInfo {
@@ -77,12 +76,16 @@ pub struct EvaluationRecord {
     pub inbound: bool,
     pub public_port: u16,
     pub upstream_port: u16,
-    /// Allow | Drop
+    /// Wire protocol detected for this message (HTTP/1.x parsed, HTTP/2 tagged
+    /// but not parsed, raw ascii/binary for unframed traffic).
+    pub protocol: Protocol,
+    /// IDs of the markers that were satisfied during evaluation.
     pub markers: Vec<String>,
+    /// Final decision for this message: `Allow` or `Drop`.
     pub decision: Decision,
     pub drop_reasons: Vec<DropReason>,
     pub http: Option<HttpInfo>,
-    // TODO store as raw bytes
+    // Captured frame, base64-encoded for JSON transport.
     pub raw_b64: String,
     pub details: Vec<EvaluationDetail>,
     // meta

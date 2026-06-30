@@ -1,0 +1,85 @@
+.port-detail {
+  padding: var(--space-6) var(--space-8);
+}
+
+
+
+.port-detail__title {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  margin: 0;
+}
+
+.port-detail__name {
+  font-weight: var(--weight-normal);
+  color: var(--color-text-secondary);
+}
+
+.port-detail__config-btn {
+  font-size: var(--text-lg);
+  padding: var(--space-1) var(--space-2);
+  margin-left: var(--space-1);
+}
+
+
+
+/* Tabs */
+.port-detail__tabs {
+  margin-top: var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.port-detail__tab {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all var(--transition-fast);
+}
+
+.port-detail__tab:hover {
+  color: var(--color-text-primary);
+}
+
+.port-detail__tab--active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* Config section (glass) */
+.port-detail__section {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+
+
+.config-item__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-tertiary);
+}
+
+.config-item__value {
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
+}
+
+.config-item__value--mono {
+  font-family: var(--font-mono);
+}
+
+

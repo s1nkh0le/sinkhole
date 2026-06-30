@@ -1,0 +1,200 @@
+.services-page {
+  padding: var(--space-6) var(--space-8);
+}
+
+.services-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.services-page__title {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  margin: 0;
+}
+
+.services-page__subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  margin: var(--space-1) 0 0;
+}
+
+.services-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-4);
+}
+
+/* Service Card — glass */
+.service-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-top: 3px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  position: relative;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.service-card:hover {
+  border-color: var(--color-border-strong);
+  background: var(--glass-bg-strong);
+}
+
+.service-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.service-card__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.service-card__name {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.service-card__url {
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.service-card__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.service-card__ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.service-card__port-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.service-card__port-badge:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+}
+
+.service-card__port-arrow {
+  color: var(--color-text-tertiary);
+  margin-left: var(--space-1);
+}
+
+
+
+.form-mode-toggle {
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.form-mode-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+
+
+/* Guided URL row */
+.url-guided {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.url-guided__protocol {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.url-guided__host {
+  flex: 1;
+  min-width: 0;
+}
+
+.url-guided__sep {
+  font-size: var(--text-lg);
+  color: var(--color-text-tertiary);
+  line-height: 1;
+}
+
+.url-guided__port {
+  width: 80px;
+  flex-shrink: 0;
+  -moz-appearance: textfield;
+}
+
+/* Remove number input spinners */
+.url-guided__port::-webkit-outer-spin-button,
+.url-guided__port::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Add-error detail */
+.add-error-detail {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.add-error-detail__title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-error);
+}
+
+.add-error-detail__text {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.add-error-detail__text--mono {
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

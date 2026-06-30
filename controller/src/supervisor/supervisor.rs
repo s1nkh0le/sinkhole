@@ -1,16 +1,16 @@
-use anyhow::{anyhow, Result};
+use crate::config::env::ServiceCfg;
+use crate::db::commands::DbHandle;
+use crate::{
+    state::ctrl::{ControllerState, Service, ServiceCursors},
+    state::health::Health,
+};
+use anyhow::{Result, anyhow};
 use parking_lot::Mutex;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-use crate::config::env::ServiceCfg;
-use crate::{
-    state::ctrl::{ControllerState, Service, ServiceCursors},
-    state::health::Health,
-};
-use crate::db::commands::DbHandle;
 
 /// A running set of tasks for one service (health, state, ecam, records)
 struct ServiceTasks {
@@ -21,17 +21,6 @@ struct ServiceTasks {
 impl ServiceTasks {
     fn new(cancel: CancellationToken, handles: Vec<JoinHandle<()>>) -> Self {
         Self { cancel, handles }
-    }
-
-    fn cancel(&self) {
-        self.cancel.cancel();
-    }
-
-    async fn join(self) {
-        for h in self.handles {
-            // Best effort: we don't propagate panics here; log if needed
-            let _ = h.await;
-        }
     }
 }
 
@@ -84,6 +73,11 @@ impl Supervisor {
             );
         }
 
+        // Resume from persisted state if this service was known before (e.g. a
+        // controller restart + re-add via API): refresh boot cursors so we don't
+        // re-pull the filter's entire history, and restore display metadata.
+        self.refresh_persisted_state(&cfg.id);
+
         // Spawn tasks (idempotent per service_id)
         if let Err(e) = self.spawn_for_service(&cfg.id).await {
             // Roll back state on failure
@@ -94,6 +88,46 @@ impl Supervisor {
 
         info!("[Supervisor::add_service({})] New service added", cfg.id);
         Ok(())
+    }
+
+    /// Pull this service's persisted cursors + metadata from the DB into live
+    /// state. Used when a service is added at runtime so it resumes instead of
+    /// re-pulling the filter's whole history. Best-effort; logs on failure.
+    fn refresh_persisted_state(&self, service_id: &str) {
+        let path = self.db.path.as_str();
+
+        if let Ok(bc) = crate::db::boot::read_boot_cursors(path) {
+            let mut w = self.state.write();
+            if let Some(v) = bc.ecam_cursors.get(service_id).copied() {
+                w.boot_cursors
+                    .ecam_cursors
+                    .insert(service_id.to_string(), v);
+                if let Some(svc) = w.services.get_mut(service_id)
+                    && svc.service_cursors.next_ecam_since == 0
+                {
+                    svc.service_cursors.next_ecam_since = v;
+                }
+            }
+            for ((svc, port), v) in bc.records_cursors.iter() {
+                if svc == service_id {
+                    w.boot_cursors
+                        .records_cursors
+                        .insert((svc.clone(), *port), *v);
+                }
+            }
+        } else {
+            tracing::warn!(%service_id, "could not refresh boot cursors for added service");
+        }
+
+        // Restore persisted display metadata for this service, if any row exists.
+        if let Ok(services) = crate::db::util::read_all_services(path)
+            && let Some(ps) = services.into_iter().find(|s| s.cfg.id == service_id)
+        {
+            let mut w = self.state.write();
+            if let Some(svc) = w.services.get_mut(service_id) {
+                svc.metadata = ps.meta;
+            }
+        }
     }
 
     /// Stop background tasks for `service_id` (if any). Idempotent.
@@ -127,7 +161,10 @@ impl Supervisor {
             }
         }
 
-        info!("[Supervisor::remove_service({})] Service emoved", service_id);
+        info!(
+            "[Supervisor::remove_service({})] Service removed",
+            service_id
+        );
         Ok(())
     }
 
@@ -143,10 +180,10 @@ impl Supervisor {
             let cfg = self.state.cfg();
             (
                 &self.state.http,
-                Duration::from_secs(5),
-                Duration::from_secs(5),
-                Duration::from_secs(5),
-                Duration::from_secs(cfg.sync_interval_secs),
+                cfg.sync_health_interval,
+                cfg.sync_ecam_interval,
+                cfg.sync_records_interval,
+                cfg.sync_config_interval,
             )
         };
 
@@ -207,7 +244,10 @@ impl Supervisor {
             svc.cfg = cfg.clone();
         }
 
-        info!("[Supervisor::reconfigure_service({})] Service reconfigured", cfg.id);
+        info!(
+            "[Supervisor::reconfigure_service({})] Service reconfigured",
+            cfg.id
+        );
 
         // Restart tasks
         self.remove_service(&cfg.id).await?;

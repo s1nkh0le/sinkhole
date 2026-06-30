@@ -1,5 +1,5 @@
-use axum::http::StatusCode;
 use axum::Json;
+use axum::http::StatusCode;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -9,8 +9,7 @@ pub mod sealed {
     pub trait Sealed {}
 }
 
-#[derive(Serialize)]
-#[derive(utoipa::ToSchema)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[schema(bound = "T: serde::Serialize + utoipa::ToSchema")]
 pub struct OkEnvelope<T: OkData> {
     pub status: &'static str,
@@ -19,5 +18,8 @@ pub struct OkEnvelope<T: OkData> {
 
 pub fn ok<T: OkData + Serialize>(data: T) -> (StatusCode, Json<Value>) {
     let env = OkEnvelope { status: "ok", data };
-    (StatusCode::OK, Json(serde_json::to_value(env).expect("serialize ok() envelope")))
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(env).expect("serialize ok() envelope")),
+    )
 }

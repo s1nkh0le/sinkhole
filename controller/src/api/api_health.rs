@@ -1,13 +1,14 @@
 use crate::state::ctrl::ControllerState;
 use axum::http::StatusCode;
 use axum::{
-    extract::{OriginalUri, State},
     Json,
+    extract::{OriginalUri, State},
 };
 use serde::Serialize;
 use serde_json::Value;
 use shared::api::err::ErrorEnvelope;
-use shared::api::ok::{ok, OkEnvelope};
+use shared::api::ok::{OkEnvelope, ok};
+use shared::types::routing::common::AuthPingData;
 use utoipa::ToSchema;
 
 // ─────────────────────────── /health ───────────────────────────
@@ -20,7 +21,6 @@ pub struct HealthOkData {
 impl shared::api::ok::sealed::Sealed for HealthOkData {}
 impl shared::api::ok::OkData for HealthOkData {}
 
-
 /// /health
 #[utoipa::path(
     get,
@@ -29,13 +29,29 @@ impl shared::api::ok::OkData for HealthOkData {}
     responses((status = 200, description = "OK", body = OkEnvelope<HealthOkData>)),
     tags = ["controller", "unauthenticated"]
 )]
-pub async fn get_health(
-    OriginalUri(_uri): OriginalUri,
-) -> (StatusCode, Json<Value>) {
+pub async fn get_health(OriginalUri(_uri): OriginalUri) -> (StatusCode, Json<Value>) {
     ok(HealthOkData { healthy: true })
 }
 
+// ─────────────────────────── /auth/ping ───────────────────────────
 
+/// /auth/ping
+///
+/// Authenticated reachability check: a 200 confirms the controller is up and the
+/// caller's token is valid. `data.instance` is `"controller"` so the frontend can
+/// tell which kind of node it reached (same shape as the filter's `/auth/ping`).
+#[utoipa::path(
+    get,
+    path = "/auth/ping",
+    responses(
+        (status = 200, description = "OK",           body = OkEnvelope<AuthPingData>),
+        (status = 401, description = "Unauthorized", body = ErrorEnvelope),
+    ),
+    tag = "controller"
+)]
+pub async fn get_auth_ping(OriginalUri(_uri): OriginalUri) -> (StatusCode, Json<Value>) {
+    ok(AuthPingData::healthy(AuthPingData::CONTROLLER))
+}
 
 // ─────────────────────────── /services ─────────────────────────
 #[derive(Serialize, ToSchema)]
@@ -54,16 +70,12 @@ pub struct ServicesOkData {
 impl shared::api::ok::sealed::Sealed for ServicesOkData {}
 impl shared::api::ok::OkData for ServicesOkData {}
 
-
 /// /services
 ///
 /// Returns a brief list of service summaries with basic information
 #[utoipa::path(
     get,
     path = "/services",
-    params(
-        // ("ctrl_token" = String, Query,                              description = "Authentication token")
-    ),
     responses(
         (status = 200, description = "OK",                          body = OkEnvelope<ServicesOkData>),
         (status = 401, description = "Unauthorized",                body = ErrorEnvelope),
@@ -80,19 +92,23 @@ pub async fn get_list_services(
         let g = state.read();
 
         // Collect, then sort by service id for stable output
-        let mut rows: Vec<ServiceSummary> = g.services.iter().map(|(id, svc)| {
-            // Snapshot + sort port list for diff-friendly responses
-            let mut ports: Vec<u16> = svc.ports.keys().copied().collect();
-            ports.sort_unstable();
+        let mut rows: Vec<ServiceSummary> = g
+            .services
+            .iter()
+            .map(|(id, svc)| {
+                // Snapshot + sort port list for diff-friendly responses
+                let mut ports: Vec<u16> = svc.ports.keys().copied().collect();
+                ports.sort_unstable();
 
-            ServiceSummary {
-                id: id.clone(),
-                url: svc.cfg.base_url.clone(),
-                healthy: svc.health.is_healthy(),
-                last_sync_ns: svc.health.last_sync_ns(),
-                ports,
-            }
-        }).collect();
+                ServiceSummary {
+                    id: id.clone(),
+                    url: svc.cfg.base_url.clone(),
+                    healthy: svc.health.is_healthy(),
+                    last_sync_ns: svc.health.last_sync_ns(),
+                    ports,
+                }
+            })
+            .collect();
 
         rows.sort_by(|a, b| a.id.cmp(&b.id));
         rows

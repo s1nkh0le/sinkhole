@@ -3,7 +3,7 @@ site_url: https://s1nkh0le.github.io/sinkhole/
 
 repo_name: sinkhole
 repo_url: https://github.com/s1nkh0le/sinkhole
-remote_branch: main
+remote_branch: gh-pages
 
 
 theme:
@@ -61,7 +61,8 @@ plugins:
   - tags:
       tags: true
   - swagger-ui-tag:
-
+  - minify:
+      minify_html: true
 
 markdown_extensions:
   - abbr
@@ -86,6 +87,8 @@ markdown_extensions:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.betterem
+  - pymdownx.tabbed:
+      alternate_style: true
   - pymdownx.arithmatex:
       generic: true
   - def_list
@@ -108,10 +111,33 @@ extra_javascript:
 
 
 nav:
-  - Index:
-      - 'Overview': index.md
+  - Home: index.md
+  - Getting started:
+      - 'Core concepts': getting-started/concepts.md
+      - 'Philosophy': getting-started/philosophy.md
+      - 'Quickstart': usage/quickstart.md
+  - Architecture:
+      - 'Overview': architecture/index.md
+      - 'Filter': architecture/filter.md
+      - 'Controller': architecture/controller.md
+      - 'Data and persistence': architecture/persistence.md
+  - Configuration:
+      - 'Environment variables': configuration/env.md
+      - 'Authentication': configuration/auth.md
+      - 'TLS termination': configuration/tls.md
+  - Filtering:
+      - 'Rule model': filtering/rules.md
+      - 'Evaluation semantics': filtering/evaluation.md
+      - 'Examples': filtering/examples.md
+  - Operations:
+      - 'Installing a filter': operations/installing-a-filter.md
+      - 'Deployment': operations/deployment.md
+      - 'Testing & development': operations/testing.md
   - Reference:
-      - 'Api':
+      - 'API':
           - pages/reference/swagger/index.md
-          - 'Filter': pages/reference/swagger/openapi-filter.md
           - 'Controller': pages/reference/swagger/openapi-ctrl.md
+          - 'Filter': pages/reference/swagger/openapi-filter.md
+      - 'Identifiers (ports, ids, names)': reference/identifiers.md
+      - 'ECAM events': reference/ecam.md
+      - 'Glossary': reference/glossary.md

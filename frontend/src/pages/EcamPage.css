@@ -1,0 +1,101 @@
+.ecam-page {
+  padding: var(--space-6) var(--space-8);
+}
+
+.ecam-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.ecam-page__title {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  margin: 0;
+}
+
+.ecam-page__subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  margin: var(--space-1) 0 0;
+}
+
+.ecam-page__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ecam-page__updated {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* Feed */
+.ecam-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ecam-event {
+  padding: var(--space-3) var(--space-4);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  border-left: 3px solid var(--color-border);
+  transition: background var(--transition-fast);
+}
+
+.ecam-event:hover {
+  background: var(--color-bg-elevated);
+}
+
+.ecam-event--warn {
+  border-left-color: var(--color-warning);
+}
+
+.ecam-event--error {
+  border-left-color: var(--color-error);
+}
+
+.ecam-event__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.ecam-event__origin {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+}
+
+.ecam-event__time {
+  margin-left: auto;
+}
+
+.ecam-event__msg {
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
+  margin: 0;
+  line-height: var(--leading-normal);
+}
+
+.ecam-event__data {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--color-bg-primary);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  overflow-x: auto;
+  margin-top: var(--space-2);
+  color: var(--color-text-secondary);
+  max-height: 200px;
+  overflow-y: auto;
+}

@@ -1,0 +1,15 @@
+target/
+.git/
+**/*.rs.bk
+
+# The filter/controller images only build the Rust crates (see Dockerfile);
+# keep the rest out of the build context to speed up `docker compose build`.
+frontend/
+docs/
+test/
+scripts/
+.idea/
+.github/
+*.md
+docker-compose*.yaml
+.env

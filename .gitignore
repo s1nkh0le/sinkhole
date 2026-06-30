@@ -3,3 +3,16 @@
 /sample_rules/
 /rules/
 *.db*
+.env*
+data/
+sinkhole-data/
+docker/certs/
+files/
+test/
+tools/
+logs/
+__pycache__
+frontend/node_modules
+frontend/dist
+site/
+dist/

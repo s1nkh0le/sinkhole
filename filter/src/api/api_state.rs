@@ -1,10 +1,9 @@
 use crate::api::routes_filter::SharedState;
+use axum::Json;
 use axum::extract::{OriginalUri, State};
 use axum::http::StatusCode;
-use axum::Json;
-use shared::api::ok::{ok, OkEnvelope};
+use shared::api::ok::{OkEnvelope, ok};
 use shared::types::routing::filter::state::FilterStateOkData;
-
 
 /// /fetch
 ///
@@ -13,7 +12,6 @@ use shared::types::routing::filter::state::FilterStateOkData;
     get,
     path = "/fetch",
     params(
-        // ("token" = String, Query, description = "Authentication token"),
         ("port" = u16, Path, description = "Public port"),
     ),
     responses(
@@ -30,7 +28,7 @@ pub async fn get_state(
     let mut snapshots = Vec::new();
 
     for entry in registry.iter() {
-        let port = *entry.key();
+        let _port = *entry.key();
         let pr = entry.value();
 
         let port_snapshot = pr.to_snapshot();

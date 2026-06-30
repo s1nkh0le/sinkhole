@@ -8,19 +8,16 @@ use tracing::debug;
 pub fn dump_port_state(rt: &Arc<PortRuntime>) {
     // ---- guards ---------------------------------------------------------
     let compiled_guard = rt.compiled.load();
-    let compiled: &CompiledRuleSet = &*compiled_guard;
+    let compiled: &CompiledRuleSet = &compiled_guard;
 
     let raw_guard = rt.raw_ruleset.load();
-    let raw: &RuleSetRaw = &*raw_guard;
+    let raw: &RuleSetRaw = &raw_guard;
 
     // ---- meta -----------------------------------------------------------
     let name_guard = rt.name.load();
     let name = name_guard.as_ref().map(|s| s.as_str()).unwrap_or("-");
 
-    let scopes = rt
-        .enabled_scopes
-        .read()
-        .expect("PortRuntime.enabled_scopes lock poisoned");
+    let scopes = rt.enabled_scopes.read();
 
     let scope_list = scopes
         .iter()
@@ -79,6 +76,9 @@ fn matcher_desc(m: &MatcherDef) -> String {
         } => format!("header_regex {}=/{} /", header_name, pattern),
         MethodRegex { pattern, .. } => format!("method_regex /{}/", pattern),
         StatusRegex { pattern, .. } => format!("status_regex /{}/", pattern),
+        StreamBytes { pattern } => format!("stream_bytes /{}/", pattern),
+        BodyBytes { pattern } => format!("body_bytes /{}/", pattern),
+        BytesHex { value } => format!("bytes_hex {}", value),
         SessionLifetime { value, op, .. } => format!("session_lifetime /{} {}/", op, value),
         SessionIdle { value, op, .. } => format!("session_idle /{} {}/", op, value),
         Size {

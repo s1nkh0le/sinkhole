@@ -1,0 +1,41 @@
+.sync-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sync-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sync-bar__label {
+  font-size: 9px;
+  font-weight: var(--weight-medium);
+  color: var(--color-text-tertiary);
+  width: 22px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+}
+
+.sync-bar__track {
+  flex: 1;
+  height: 3px;
+  background: var(--color-bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.sync-bar__fill {
+  height: 100%;
+  background: var(--color-success);
+  border-radius: 2px;
+  transition: width 50ms linear;
+}
+
+.sync-bar__fill--error {
+  background: var(--color-error);
+}

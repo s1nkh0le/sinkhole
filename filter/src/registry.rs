@@ -1,16 +1,19 @@
 use crate::{
     config::{Config, PortBinding},
-    rules::compile::{compile_ruleset, CompiledRuleSet},
+    rules::compile::{CompiledRuleSet, compile_ruleset},
 };
 use anyhow::Result;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use dashmap::DashMap;
+use parking_lot::RwLock;
 use shared::types::base_types::Scope;
 use shared::types::ruleset_types::{PortInfo, RuleSetRaw};
-use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
 use shared::types::snapshot_types::PortSnapshot;
-use shared::utils::version::{calc_version_combined_copyover, calc_version_info, calc_version_ruleset};
+use shared::utils::version::{
+    calc_version_combined_copyover, calc_version_info, calc_version_ruleset,
+};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 /// In‑memory runtime object for one public port.
 pub struct PortRuntime {
@@ -28,33 +31,38 @@ pub struct PortRuntime {
     pub hex_color: ArcSwapOption<String>,
 }
 
-
 impl PortRuntime {
     pub fn to_portinfo(&self) -> PortInfo {
         // -------- ArcSwapOption fields -----------------------------------
         // `load_full()` gives an `Option<Arc<T>>`.  `as_deref()` turns that into
         // `Option<&T>`, and `cloned()` makes an owned `Option<T>`.
-        let name      = self.name.load_full().as_deref().cloned();
-        let comment   = self.comment.load_full().as_deref().cloned();
+        let name = self.name.load_full().as_deref().cloned();
+        let comment = self.comment.load_full().as_deref().cloned();
         let hex_color = self.hex_color.load_full().as_deref().cloned();
 
         // -------- RwLock field -------------------------------------------
         let enabled_scopes = {
-            let guard = self
-                .enabled_scopes
-                .read()
-                .expect("PortRuntime.enabled_scopes lock poisoned");
+            let guard = self.enabled_scopes.read();
             guard.iter().cloned().collect::<Vec<_>>()
+        };
+
+        // Channel is derived from the binding's TLS material — immutable, set at
+        // config time. A cert/key pair (TLS_MAP) ⇒ Tls, otherwise bare Tcp.
+        let channel = if self.binding.tls_enabled() {
+            shared::types::base_types::PortChannel::Tls
+        } else {
+            shared::types::base_types::PortChannel::Tcp
         };
 
         // -------- Assemble result ----------------------------------------
         PortInfo {
-            public:   self.binding.public,
+            public: self.binding.public,
             upstream: self.binding.upstream,
             name,
             comment,
             hex_color,
             enabled_scopes,
+            channel,
         }
     }
 
@@ -64,7 +72,7 @@ impl PortRuntime {
         // an owned value that is independent of the registry.
         (*self.raw_ruleset.load_full()).clone()
     }
-    
+
     /// Return a read-only clone of the *current* raw ruleset.
     pub fn to_snapshot(&self) -> PortSnapshot {
         let info = self.to_portinfo();
@@ -72,13 +80,13 @@ impl PortRuntime {
         let ver_info = calc_version_info(&info);
         let ver_ruleset = calc_version_ruleset(&ruleset);
         let ver_combined = calc_version_combined_copyover(&ver_info, &ver_ruleset);
-        
+
         PortSnapshot {
             info,
             ruleset,
             ver_info,
             ver_ruleset,
-            ver_combined
+            ver_combined,
         }
     }
 }
@@ -90,7 +98,7 @@ pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
 
     for port_binding in &cfg.ports {
         let empty_raw = Arc::new(RuleSetRaw {
-            comment: None,
+            commit_message: None,
             markers: vec![],
             filters: vec![],
         });
@@ -115,7 +123,7 @@ pub fn build_registry(cfg: &Config) -> Result<PortRegistry> {
 fn default_scopes() -> HashSet<Scope> {
     use Scope::*;
     [
-        Meta, Stream, HttpHeader, HttpPath, HttpBody, HttpMethod, HttpStatus, Timing,
+        Stream, HttpHeader, HttpPath, HttpBody, HttpMethod, HttpStatus, Timing,
     ]
     .into_iter()
     .collect()

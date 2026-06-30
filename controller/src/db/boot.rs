@@ -1,13 +1,13 @@
 use anyhow::Result;
 use rusqlite::{Connection, Row};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
 pub struct BootCursors {
     pub ecam_cursors: HashMap<String, u64>,
-    pub records_cursors: HashMap<(String, u16), u64>
+    pub records_cursors: HashMap<(String, u16), u64>,
 }
 
 /// Fetches the map to use the latest timestamps from the db as cursor, in order to only fetch fresh data.
@@ -16,9 +16,7 @@ pub struct BootCursors {
 /// Returns:
 /// - ecam_since:  map (service_id) -> (max{ts_ns} + 1ns),                   or 0 if none.
 /// - logs_since:  map (service_id, port) -> (max{timestamp_ns} + 1ns),      or 0 if none.
-pub fn read_boot_cursors(
-    path: &str,
-) -> Result<BootCursors> {
+pub fn read_boot_cursors(path: &str) -> Result<BootCursors> {
     let conn = Connection::open(path)?;
 
     let mut ecam_cursors: HashMap<String, u64> = HashMap::new();
@@ -69,5 +67,8 @@ pub fn read_boot_cursors(
         }
     }
 
-    Ok(BootCursors { ecam_cursors, records_cursors })
+    Ok(BootCursors {
+        ecam_cursors,
+        records_cursors,
+    })
 }

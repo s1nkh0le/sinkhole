@@ -3,19 +3,21 @@ use crate::db::commands::FilterDbCmd;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
 use axum::Json;
-use axum::extract::{OriginalUri, Path, Query, State};
+use axum::extract::{OriginalUri, Path, State};
 use axum::http::StatusCode;
 use serde_json::json;
+use shared::api::err::ErrorEnvelope;
+use shared::api::ok::{OkEnvelope, ok};
+use shared::types::base_types::Scope;
+use shared::types::routing::filter::ports::{
+    FilterReplySuccessPortAndVersion, FilterReplySuccessPortAndVersionVec,
+    FilterRequestPutBodyConfigUpdate,
+};
 use shared::utils::time::now_ns;
-use std::fmt::Debug;
+use shared::utils::version::calc_version_info;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::info;
-use utoipa::{ToSchema};
-use shared::api::err::ErrorEnvelope;
-use shared::api::ok::{ok, OkEnvelope};
-use shared::types::routing::filter::ports::{FilterReplySuccessPortAndVersion, FilterReplySuccessPortAndVersionVec, FilterCtrlRequestPutBodyConfigUpdate};
-use shared::utils::version::calc_version_info;
-
 
 /// /ports
 ///
@@ -25,9 +27,6 @@ use shared::utils::version::calc_version_info;
 #[utoipa::path(
     get,
     path = "/ports",
-    params(
-        // ("token" = String, Query,                               description = "Authentication token"),
-    ),
     responses(
         (status = 200, description = "OK",                      body = OkEnvelope<FilterReplySuccessPortAndVersionVec>),
         (status = 401, description = "Unauthorized",            body=ErrorEnvelope),
@@ -44,17 +43,13 @@ pub async fn get_port_list(
         let info = pr.to_portinfo();
         let ver_info = calc_version_info(&info);
 
-        reply_ports_content.push(
-            FilterReplySuccessPortAndVersion { info, ver_info }
-        );
+        reply_ports_content.push(FilterReplySuccessPortAndVersion { info, ver_info });
     }
 
-    ok(FilterReplySuccessPortAndVersionVec { content: reply_ports_content })
+    ok(FilterReplySuccessPortAndVersionVec {
+        content: reply_ports_content,
+    })
 }
-
-
-
-
 
 /// /ports/{port}/config
 ///
@@ -63,7 +58,6 @@ pub async fn get_port_list(
     get,
     path = "/ports/{port}/config",
     params(
-        // ("token" = String, Query,                               description = "Authentication token"),
         ("port" = u16, Path,                                    description = "Public port"),
     ),
     responses(
@@ -100,8 +94,6 @@ pub async fn get_config(
     }
 }
 
-
-
 /// /ports/{port}/config
 ///
 /// Validates the port configuration update, and if successful, will be
@@ -110,7 +102,6 @@ pub async fn get_config(
     put,
     path = "/ports/{port}/config",
     params(
-        // ("token" = String, Query,                               description = "Authentication token"),
         ("port" = u16, Path,                                    description = "Public port"),
     ),
     responses(
@@ -125,17 +116,24 @@ pub async fn put_config(
     OriginalUri(uri): OriginalUri,
     Path(port): Path<u16>,
     State((_cfg, registry, db)): State<SharedState>,
-    Json(body): Json<FilterCtrlRequestPutBodyConfigUpdate>, // keep Json() after all else
+    Json(body): Json<FilterRequestPutBodyConfigUpdate>, // keep Json() after all else
 ) -> (StatusCode, Json<serde_json::Value>) {
     // ── port lookup ─────────────────────────────────────
     let port_runtime = match registry.get(&port) {
         Some(p) => p,
         None => {
-            sink_ecam::record(Severity::Warn, Origin::API, format!("[put_config(), PUT {}]: rejecting config | port not found", uri.path()), None);
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"status":"error","errors":["unknown port"]})),
+            sink_ecam::record(
+                Severity::Warn,
+                Origin::API,
+                format!(
+                    "[put_config(), PUT {}]: rejecting config | port not found",
+                    uri.path()
+                ),
+                None,
             );
+            return ErrorEnvelope::not_found("sanitization", uri.path())
+                .with_title("Unknown Port")
+                .into_result();
         }
     };
 
@@ -146,24 +144,59 @@ pub async fn put_config(
         errs.push(format!("API port ({}) differs from port runtime object public port ({}). This is an internal error.", port, port_runtime.binding.public));
     }
 
-    if let Some(ref scopes) = body.enabled_scopes {
-        if scopes.is_empty() {
-            errs.push("enabled_scopes cannot be empty".to_string());
+    if let Some(ref scopes) = body.enabled_scopes
+        && scopes.is_empty()
+    {
+        errs.push("enabled_scopes cannot be empty".to_string());
+    }
+
+    // A scope can only be disabled if the *active* ruleset has no rule using it.
+    // Otherwise those markers/filters would keep evaluating in a scope the
+    // operator believes is off — so we reject rather than leave them live.
+    if let Some(ref scopes) = body.enabled_scopes
+        && !scopes.is_empty()
+    {
+        let proposed: HashSet<Scope> = scopes.iter().cloned().collect();
+        let active = port_runtime.to_rulesetraw();
+        for m in &active.markers {
+            if !proposed.contains(&m.scope) {
+                errs.push(format!(
+                    "cannot disable scope {:?}: still used by markers[id={}] in the active ruleset",
+                    m.scope, m.id
+                ));
+            }
+        }
+        for f in &active.filters {
+            if !proposed.contains(&f.scope) {
+                errs.push(format!(
+                    "cannot disable scope {:?}: still used by filters[id={}] in the active ruleset",
+                    f.scope, f.id
+                ));
+            }
         }
     }
 
-    if let Some(ref hex) = body.hex_color {
-        if !is_valid_hex_color(hex) {
-            errs.push("hex_color must be in the form #RRGGBB".to_string());
-        }
+    if let Some(ref hex) = body.hex_color
+        && !is_valid_hex_color(hex)
+    {
+        errs.push("hex_color must be in the form #RRGGBB".to_string());
     }
 
     if !errs.is_empty() {
-        sink_ecam::record(Severity::Warn, Origin::API, format!("[put_config(), PUT {}]: validation failed: {}", uri.path(), errs.join(", ")), None);
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"status":"error","errors": errs})),
+        sink_ecam::record(
+            Severity::Warn,
+            Origin::API,
+            format!(
+                "[put_config(), PUT {}]: validation failed: {}",
+                uri.path(),
+                errs.join(", ")
+            ),
+            None,
         );
+        return ErrorEnvelope::bad_request("config_validation_error", uri.path())
+            .with_title("Port config validation failed")
+            .with_detail(errs.join(", "))
+            .into_result();
     }
 
     // ── apply updates (only provided fields) ─────────────
@@ -177,7 +210,7 @@ pub async fn put_config(
         port_runtime.hex_color.store(Some(Arc::new(hc.clone())));
     }
     if let Some(ref scopes) = body.enabled_scopes {
-        let mut guard = port_runtime.enabled_scopes.write().unwrap();
+        let mut guard = port_runtime.enabled_scopes.write();
         guard.clear();
         guard.extend(scopes.iter().cloned());
         info!(port, scopes=?scopes, "enabled scopes updated");
@@ -193,7 +226,8 @@ pub async fn put_config(
         "comment": info.comment,
         "hex_color": info.hex_color,
         "enabled_scopes": info.enabled_scopes
-    }).to_string();
+    })
+    .to_string();
 
     let _ = db.tx.try_send(FilterDbCmd::SaveConfig {
         external_port: port,
@@ -202,7 +236,12 @@ pub async fn put_config(
         ts_ns: now_ns() as i64,
     });
 
-    info!("[put_config(), PUT {}]: configuration updated, info={:?}, version={}", uri.path(), info, ver_info);
+    info!(
+        "[put_config(), PUT {}]: configuration updated, info={:?}, version={}",
+        uri.path(),
+        info,
+        ver_info
+    );
 
     ok(FilterReplySuccessPortAndVersion { info, ver_info })
 }

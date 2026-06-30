@@ -1,70 +1,36 @@
 use crate::config::env::ControllerCfg;
-use axum::{
-    body::Body,
-    middleware::Next,
-    response::{IntoResponse, Response},
-};
-use shared::utils::hashes::sha256_hex;
-use std::sync::Arc;
 use axum::http::Request;
+use axum::{body::Body, middleware::Next, response::Response};
+use shared::api::auth::decision::{AuthOutcome, auth_rejection, decide_bearer_auth};
+use std::sync::Arc;
 use tracing::log::warn;
-use shared::api::auth::bearer::{bearer_token_from_header, token_from_query};
-use shared::api::err::ErrorEnvelope;
 
-const CTRL_TOKEN_FIELD: &str = "ctrl_token";
-
-
-/// Header-first auth: "Authorization: Bearer <token>".
-/// Temporarily accepts `?ctrl_token=...` (deprecated) with a WARN.
+/// Auth via "Authorization: Bearer <token>". The decision + rejection envelopes
+/// are shared with the filter (`shared::api::auth::decision`); only the logging
+/// is controller-specific (`tracing`).
 pub async fn require_ctrl_token(
     cfg: Arc<ControllerCfg>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    let expected = match cfg.token_hash.as_ref() {
-        Some(h) => h,
-        None => {
-            if cfg.debug {
-                warn!("[require_ctrl_token()] Auth disabled (no CTRL token) — allowing request");
-                return next.run(req).await;
-            } else {
-                panic!("Controller auth disabled in release mode (no CTRL token hash) — aborting");
-            }
-        }
-    };
+    let outcome = decide_bearer_auth(cfg.token_hash.as_deref(), cfg.debug, &req);
 
-    let hdr_tok = bearer_token_from_header(&req);
-    let q_tok   = token_from_query(&req, CTRL_TOKEN_FIELD);
-
-    // If both present and disagree → reject (avoid ambiguity).
-    if let (Some(h), Some(q)) = (&hdr_tok, &q_tok) {
-        if h != q {
-            return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
-                .with_title("Authentication failure")
-                .with_detail("Conflicting tokens in header and query")
-                .into_response();
+    match outcome {
+        AuthOutcome::DebugBypass => {
+            warn!(
+                "[require_ctrl_token()] Auth disabled (no SINKHOLE_CONTROLLER_AUTH_TOKEN[_HASH]) — allowing request"
+            );
         }
+        AuthOutcome::Misconfigured => {
+            tracing::error!(
+                "[require_ctrl_token()] auth misconfigured: no SINKHOLE_CONTROLLER_AUTH_TOKEN[_HASH] set in non-debug mode — refusing request"
+            );
+        }
+        _ => {}
     }
 
-    // Prefer header, fallback to query (deprecated)
-    let token = if let Some(t) = hdr_tok {
-        t
-    } else if let Some(t) = q_tok {
-        warn!("[require_ctrl_token()] query token is DEPRECATED; use Authorization: Bearer");
-        t
-    } else {
-        return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
-            .with_title("Authentication failure")
-            .with_detail("Missing Authorization: Bearer (or deprecated ?ctrl_token)")
-            .into_response();
-    };
-
-    let calc = sha256_hex(token.trim().as_bytes());
-    if &calc != expected {
-        return ErrorEnvelope::unauthorized("unauthorized", req.uri().path())
-            .with_title("Authentication failure")
-            .with_detail("Bad token")
-            .into_response();
+    if let Some(rejection) = auth_rejection(outcome, req.uri().path()) {
+        return rejection;
     }
 
     next.run(req).await

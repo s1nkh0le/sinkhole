@@ -2,7 +2,9 @@ use crate::api::routes_filter::SharedState;
 use axum::Json;
 use axum::extract::{OriginalUri, State};
 use axum::http::StatusCode;
-use serde_json::json;
+use serde_json::{Value, json};
+use shared::api::ok::{OkEnvelope, ok};
+use shared::types::routing::common::AuthPingData;
 
 /// /health
 #[utoipa::path(
@@ -18,15 +20,32 @@ pub async fn get_health(OriginalUri(_uri): OriginalUri) -> Json<serde_json::Valu
     Json(json!({"status":"ok"}))
 }
 
+/// /auth/ping
+///
+/// Authenticated reachability check: a 200 confirms the filter is up and the
+/// caller's token is valid. `data.instance` is `"filter"` so the frontend can tell
+/// which kind of node it reached (same shape as the controller's `/auth/ping`).
+#[utoipa::path(
+    get,
+    path = "/auth/ping",
+    responses(
+        (status = 200, description = "OK", body = OkEnvelope<AuthPingData>),
+        (status = 401, description = "Unauthorized"),
+    ),
+    tag = "filter"
+)]
+pub async fn get_auth_ping(OriginalUri(_uri): OriginalUri) -> (StatusCode, Json<Value>) {
+    ok(AuthPingData::healthy(AuthPingData::FILTER))
+}
+
 /// /version
 ///
-/// Returns general metadata to the
+/// Returns this filter's version string and a snapshot of its effective runtime
+/// config (upstream host, port bindings, control bind, limits, db path) so the
+/// controller can record and display what each service is running.
 #[utoipa::path(
     get,
     path = "/version",
-    params(
-        // ("token" = String, Query, description = "Authentication token"),
-    ),
     responses(
         (status = 200, description = "OK")
     ),
@@ -36,18 +55,28 @@ pub async fn get_version(
     OriginalUri(_uri): OriginalUri,
     State((cfg, _registry, _db)): State<SharedState>,
 ) -> Json<serde_json::Value> {
+    let ports: Vec<_> = cfg
+        .ports
+        .iter()
+        .map(|p| {
+            json!({
+                "public": p.public,
+                "upstream": p.upstream,
+                "tls": p.tls_enabled(),
+            })
+        })
+        .collect();
     Json(json!({
         "status": "ok",
         "data": {
-            // use your hardcoded version or env!("CARGO_PKG_VERSION")
-            "version": "0.0.1",
+            "version": env!("CARGO_PKG_VERSION"),
             "config": {
                 "upstream_host": cfg.upstream_host,
-                "ports": cfg.ports,                          // Vec<PortBinding> is Serialize
-                "ctrl_bind": cfg.ctrl_bind.to_string(),      // SocketAddr -> String for stable JSON
+                "ports": ports,
+                "control_bind": cfg.control_bind.to_string(), // SocketAddr -> String for stable JSON
                 "debug": cfg.debug,
                 "body_limit_bytes": cfg.body_limit_bytes,
-                "hydrate_db": cfg.hydrate_db,
+                "db_hydrate": cfg.db_hydrate,
                 "db_path": cfg.db_path,
             }
         }
@@ -60,9 +89,6 @@ pub async fn get_version(
 #[utoipa::path(
     get,
     path = "/teapot",
-    params(
-        // ("token" = String, Query, description = "Authentication token"),
-    ),
     responses(
         (status = 401, description = "Unauthorized"),
         (status = 418, description = "I'm a teapot")

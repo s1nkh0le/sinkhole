@@ -1,7 +1,8 @@
 [package]
 name = "shared"
-version = "0.1.0"
-edition = "2021"
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
@@ -11,9 +12,11 @@ time = { version = "0.3.41", features = ["macros", "formatting"] }
 hex = "0.4.3"
 utoipa = { version = "5.4.0", features = ["macros", "axum_extras", "uuid", "chrono"] }
 axum = { version = "0.8.4", features = ["json"] }
+tower-http = { version = "0.5", features = ["cors"] }
 sha2 = "0.11.0-rc.0"
 fnv_rs = "0.4.4"
-form_urlencoded = "1.2.1"
+subtle = "2"
+zeroize = "1"
 
 [features]
 default = []

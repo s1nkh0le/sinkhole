@@ -1,9 +1,8 @@
-use anyhow::{anyhow, Result};
-use rusqlite::{params, Connection};
-use shared::types::record_types::EvaluationRecord;
-use shared::types::ecam_types::EcamEvent;
-use std::path::Path;
 use crate::db::util::open;
+use anyhow::{Result, anyhow};
+use rusqlite::params;
+use shared::types::ecam_types::EcamEvent;
+use shared::types::record_types::EvaluationRecord;
 
 /// Load ECAM events across services (optional filter by service_id)
 pub fn load_ecam_agg(
@@ -13,7 +12,7 @@ pub fn load_ecam_agg(
     until: i64,
     limit: usize,
     asc: bool,
-) -> Result<(Vec<EcamEvent>, i64)> {
+) -> Result<(Vec<EcamEvent>, i64, i64)> {
     let conn = open(db_path)?;
     let mut sql = String::from(
         "SELECT ts_ns, json
@@ -39,24 +38,27 @@ pub fn load_ecam_agg(
     };
 
     let mut out: Vec<EcamEvent> = Vec::new();
-    let mut max_ts = since;
+    let mut max_ts = i64::MIN;
+    let mut min_ts = i64::MAX;
 
     while let Some(row) = rows.next()? {
         let ts: i64 = row.get(0)?;
         let js: String = row.get(1)?;
         let ev: EcamEvent = serde_json::from_str(&js).map_err(|e| anyhow!("bad ecam json: {e}"))?;
-        if ts > max_ts {
-            max_ts = ts;
-        }
+        max_ts = max_ts.max(ts);
+        min_ts = min_ts.min(ts);
         out.push(ev);
     }
 
-    // next_since = (max + 1) or carry forward since when empty
-    let next_since = if out.is_empty() { since } else { max_ts + 1 };
-    // If DESC order was used for browse, the client can still use next_since semantics by requesting ASC later.
-    Ok((out, next_since))
+    // Direction-aware cursor: `next_since` pages forward (asc), `next_until` pages
+    // backward (desc). Empty → carry the bounds unchanged.
+    let (next_since, next_until) = if out.is_empty() {
+        (since, until)
+    } else {
+        (max_ts + 1, (min_ts - 1).max(0))
+    };
+    Ok((out, next_since, next_until))
 }
-
 
 pub fn load_records_agg_advanced(
     db_path: &str,
@@ -71,6 +73,8 @@ pub fn load_records_agg_advanced(
     is_inbound: Option<bool>,
     decision: Option<&str>,
     conn_id: Option<i64>,
+    conn_id_min: Option<i64>,
+    conn_id_max: Option<i64>,
     method: Option<&str>,
     path_like: Option<&str>,
     status_eq: Option<i64>,
@@ -79,10 +83,11 @@ pub fn load_records_agg_advanced(
     len: Option<i64>,
     len_min: Option<i64>,
     len_max: Option<i64>,
+    protocols: &[String],
     drop_kind: Option<&str>,
     drop_item_type: Option<&str>,
     drop_value: Option<&str>,
-) -> Result<(Vec<EvaluationRecord>, i64)> {
+) -> Result<(Vec<EvaluationRecord>, i64, i64)> {
     let conn = open(db_path)?;
 
     let need_to_join_dropreason =
@@ -104,15 +109,19 @@ pub fn load_records_agg_advanced(
 
     let mut sql = String::new();
     sql.push_str("SELECT ");
-    if need_distinct { sql.push_str("DISTINCT "); }
+    if need_distinct {
+        sql.push_str("DISTINCT ");
+    }
     sql.push_str("r.timestamp_ns, r.json FROM records r");
 
     if need_to_join_dropreason {
         sql.push_str(
-            " JOIN drop_reason_items d
-              ON d.timestamp_ns = r.timestamp_ns
-             AND d.service_id   = r.service_id
-             AND d.port         = r.port",
+            " JOIN record_drop_reasons d
+              ON d.service_id   = r.service_id
+             AND d.port         = r.port
+             AND d.conn_id      = r.conn_id
+             AND d.inbound      = r.inbound
+             AND d.message_seq  = r.message_seq",
         );
     }
 
@@ -121,9 +130,11 @@ pub fn load_records_agg_advanced(
         let _ = write!(
             &mut sql,
             " JOIN record_markers m{idx}
-                ON m{idx}.timestamp_ns = r.timestamp_ns
-               AND m{idx}.service_id   = r.service_id
+                ON m{idx}.service_id   = r.service_id
                AND m{idx}.port         = r.port
+               AND m{idx}.conn_id      = r.conn_id
+               AND m{idx}.inbound      = r.inbound
+               AND m{idx}.message_seq  = r.message_seq
                AND m{idx}.marker_id    = ?",
             idx = i
         );
@@ -162,6 +173,15 @@ pub fn load_records_agg_advanced(
     if let Some(cid) = conn_id {
         sql.push_str(" AND r.conn_id = ?");
         binds.push(Box::new(cid));
+    } else {
+        if let Some(mi) = conn_id_min {
+            sql.push_str(" AND r.conn_id >= ?");
+            binds.push(Box::new(mi));
+        }
+        if let Some(ma) = conn_id_max {
+            sql.push_str(" AND r.conn_id <= ?");
+            binds.push(Box::new(ma));
+        }
     }
     if let Some(m) = method {
         sql.push_str(" AND r.http_method = ?");
@@ -199,18 +219,30 @@ pub fn load_records_agg_advanced(
         }
     }
 
+    if !protocols.is_empty() {
+        use std::fmt::Write as _;
+        let placeholders = std::iter::repeat_n("?", protocols.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = write!(&mut sql, " AND r.protocol IN ({placeholders})");
+        for p in protocols {
+            binds.push(Box::new(p.clone()));
+        }
+    }
+
     if need_negative_markers_subquery {
         use std::fmt::Write as _;
         sql.push_str(
             " AND NOT EXISTS (
                 SELECT 1 FROM record_markers mneg
-                 WHERE mneg.timestamp_ns = r.timestamp_ns
-                   AND mneg.service_id   = r.service_id
+                 WHERE mneg.service_id   = r.service_id
                    AND mneg.port         = r.port
+                   AND mneg.conn_id      = r.conn_id
+                   AND mneg.inbound      = r.inbound
+                   AND mneg.message_seq  = r.message_seq
                    AND mneg.marker_id IN (",
         );
-        let placeholders = std::iter::repeat("?")
-            .take(negative_markers.len())
+        let placeholders = std::iter::repeat_n("?", negative_markers.len())
             .collect::<Vec<_>>()
             .join(", ");
         let _ = write!(&mut sql, "{placeholders}");
@@ -236,7 +268,11 @@ pub fn load_records_agg_advanced(
         }
     }
 
-    sql.push_str(if is_asc { " ORDER BY r.timestamp_ns ASC" } else { " ORDER BY r.timestamp_ns DESC" });
+    sql.push_str(if is_asc {
+        " ORDER BY r.timestamp_ns ASC"
+    } else {
+        " ORDER BY r.timestamp_ns DESC"
+    });
     sql.push_str(" LIMIT ?");
     binds.push(Box::new(limit as i64));
 
@@ -244,17 +280,25 @@ pub fn load_records_agg_advanced(
     let mut rows = stmt.query(rusqlite::params_from_iter(binds.iter()))?;
 
     let mut out: Vec<EvaluationRecord> = Vec::new();
-    let mut max_ts = since;
+    let mut max_ts = i64::MIN;
+    let mut min_ts = i64::MAX;
 
     while let Some(row) = rows.next()? {
         let ts: i64 = row.get(0)?;
         let js: String = row.get(1)?;
-        let rec: EvaluationRecord = serde_json::from_str(&js)
-            .map_err(|e| anyhow::anyhow!("bad record json: {e}"))?;
-        if ts > max_ts { max_ts = ts; }
+        let rec: EvaluationRecord =
+            serde_json::from_str(&js).map_err(|e| anyhow::anyhow!("bad record json: {e}"))?;
+        max_ts = max_ts.max(ts);
+        min_ts = min_ts.min(ts);
         out.push(rec);
     }
 
-    let next_since = if out.is_empty() { since } else { max_ts + 1 };
-    Ok((out, next_since))
+    // Direction-aware cursor: `next_since` pages forward in time (asc browse),
+    // `next_until` pages backward (desc browse). Empty → carry the bounds.
+    let (next_since, next_until) = if out.is_empty() {
+        (since, until)
+    } else {
+        (max_ts + 1, (min_ts - 1).max(0))
+    };
+    Ok((out, next_since, next_until))
 }

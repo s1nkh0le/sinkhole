@@ -1,5 +1,5 @@
-use crate::fetch::extraction::extract_ok_data;
 use crate::fetch::error::CtrlErr;
+use crate::fetch::extraction::extract_ok_data;
 use reqwest::Client;
 use shared::types::routing::filter::state::FilterStateOkData;
 use shared::types::snapshot_types::PortSnapshot;
@@ -13,12 +13,11 @@ pub async fn fetch_state(
     timeout: Duration,
 ) -> Result<Vec<PortSnapshot>, CtrlErr> {
     let url = format!("{base}/state");
-    let fut = http
-        .get(&url)
-        .bearer_auth(token)
-        .send();
+    let fut = http.get(&url).bearer_auth(token).send();
 
-    let resp = tokio::time::timeout(timeout, fut).await.map_err(|_| CtrlErr::Timeout)??;
+    let resp = tokio::time::timeout(timeout, fut)
+        .await
+        .map_err(|_| CtrlErr::Timeout)??;
 
     match resp.status().as_u16() {
         200 => {

@@ -1,22 +1,22 @@
 use crate::fetch::error::CtrlErr;
-use crate::state::ctrl::{ControllerState, Service, ServiceMetadata};
-use crate::state::health::{Health, HealthLayer};
+use crate::state::ctrl::ControllerState;
+use crate::state::health::HealthLayer;
 use reqwest::Client;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, trace};
 use tracing::log::warn;
+use tracing::{debug, trace};
 
-const TICK: Duration = Duration::from_millis(250);   // small granularity for backoff waits
-const TIMEOUT: Duration = Duration::from_secs(2);    // per-request timeout
+const TICK: Duration = Duration::from_millis(250); // small granularity for backoff waits
+const TIMEOUT: Duration = Duration::from_secs(2); // per-request timeout
 
 pub fn spawn_for_service(
     service_id: String,
     state: ControllerState,
     http: Client,
-    cadence: Duration,                // probe cadence between successful attempts
+    cadence: Duration, // probe cadence between successful attempts
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
     let st = state.clone();
@@ -47,10 +47,12 @@ async fn probe_loop(
                 // Service removed -> stop task
                 return;
             };
-            (svc.cfg.base_url.clone(),
-             svc.cfg.token.clone(),
-             svc.health.can_poll(layer),
-             svc.health.next_allowed_ns(layer))
+            (
+                svc.cfg.base_url.clone(),
+                svc.cfg.token.clone(),
+                svc.health.can_poll(layer),
+                svc.health.next_allowed_ns(layer),
+            )
         };
 
         if !can_poll {
@@ -76,7 +78,8 @@ async fn probe_loop(
                     }
                     Err(CtrlErr::Auth) => {
                         warn!("[probe_loop({})] probe 401 – token wrong?", svc_id);
-                        svc.health.mark_failure(layer, Some("401 unauthorized".into()));
+                        svc.health
+                            .mark_failure(layer, Some("401 unauthorized".into()));
                     }
                     Err(e) => {
                         warn!("[probe_loop({})] probe failed: {}", svc_id, e);
@@ -100,15 +103,17 @@ async fn probe_loop(
 
 pub async fn ping_check(http: &Client, base: &str, token: &str) -> Result<(), CtrlErr> {
     let fut = http
-        .get(&format!("{base}/auth/ping"))
+        .get(format!("{base}/auth/ping"))
         .bearer_auth(token)
         .send();
 
-    let resp = timeout(TIMEOUT, fut).await.map_err(|_| CtrlErr::Timeout)??;
+    let resp = timeout(TIMEOUT, fut)
+        .await
+        .map_err(|_| CtrlErr::Timeout)??;
 
     match resp.status().as_u16() {
         200 => Ok(()),
         401 => Err(CtrlErr::Auth),
-        c   => Err(CtrlErr::Http(c)),
+        c => Err(CtrlErr::Http(c)),
     }
 }

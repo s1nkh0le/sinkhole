@@ -1,19 +1,20 @@
 use crate::api::routes_filter::SharedState;
 use crate::observability::sinks::sink_ecam;
 use crate::observability::sinks::sink_ecam::{Origin, Severity};
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde_json::json;
 
 /// /ports/{port}/stats
 ///
-/// Not implemented yet
+/// Per-port statistics are not collected yet. This endpoint only validates the
+/// port (404 if unknown) and reports that stats are disabled; it is a
+/// placeholder for future counters.
 #[utoipa::path(
     put,
     path = "/ports/{port}/stats",
     params(
-        // ("token" = String, Query,                   description = "Authentication token"),
         ("port" = u16, Path,                        description = "Public port"),
     ),
     responses(

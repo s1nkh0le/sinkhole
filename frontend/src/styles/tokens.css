@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Colors - true neutral dark palette */
+  --color-bg-primary: #09090b;
+  --color-bg-secondary: #111113;
+  --color-bg-tertiary: #18181b;
+  --color-bg-elevated: #1e1e22;
+  --color-bg-hover: #242428;
+  --color-bg-active: #2c2c32;
+  
+  --color-border: #222226;
+  --color-border-subtle: #1a1a1e;
+  --color-border-strong: #333338;
+  
+  --color-text-primary: #ececef;
+  --color-text-secondary: #8e8e96;
+  --color-text-tertiary: #5c5c66;
+  --color-text-inverse: #09090b;
+  
+  /* Accent colors */
+  --color-accent: #7c8cff;
+  --color-accent-hover: #6b7bf0;
+  --color-accent-subtle: rgba(124, 140, 255, 0.10);
+  
+  /* Semantic colors */
+  --color-success: #34d399;
+  --color-success-subtle: rgba(52, 211, 153, 0.10);
+  --color-warning: #fbbf24;
+  --color-warning-subtle: rgba(251, 191, 36, 0.10);
+  --color-error: #f87171;
+  --color-error-subtle: rgba(248, 113, 113, 0.08);
+  --color-info: #60a5fa;
+  --color-info-subtle: rgba(96, 165, 250, 0.10);
+  
+  /* Decision colors */
+  --color-allow: #34d399;
+  --color-allow-bg: rgba(52, 211, 153, 0.08);
+  --color-drop: #f87171;
+  --color-drop-bg: rgba(248, 113, 113, 0.08);
+
+  /* Status code colors */
+  --color-status-4xx: #fb923c;
+  --color-status-4xx-bg: rgba(251, 146, 60, 0.10);
+  --color-status-5xx: #ef4444;
+  --color-status-5xx-bg: rgba(239, 68, 68, 0.10);
+  
+  /* Glass / translucency */
+  --glass-bg: rgba(17, 17, 19, 0.72);
+  --glass-bg-strong: rgba(17, 17, 19, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-blur: blur(20px);
+  --glass-shine: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 50%);
+  
+  /* Gradients */
+  --gradient-card: linear-gradient(135deg, rgba(255,255,255,0.015) 0%, transparent 100%);
+  --gradient-sidebar: linear-gradient(180deg, #111113 0%, #0c0c0e 100%);
+  --gradient-elevated: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 100%);
+  
+  /* Typography */
+  --font-sans: 'JetBrains Mono', monospace;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.75rem;     /* 12px */
+  --text-base: 0.8125rem; /* 13px */
+  --text-md: 0.875rem;    /* 14px */
+  --text-lg: 1rem;        /* 16px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.5rem;     /* 24px */
+  --text-3xl: 1.875rem;   /* 30px */
+  
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  
+  /* Spacing */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 9999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.7);
+  --shadow-glow: 0 0 30px rgba(124, 140, 255, 0.06);
+  
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+  
+  /* Layout */
+  --sidebar-width: 200px;
+  --header-height: 48px;
+}

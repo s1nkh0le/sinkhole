@@ -28,3 +28,32 @@ impl Matcher for AlwaysMatcher {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::matcher::test_support::Scenario;
+    use shared::types::base_types::Scope;
+
+    #[test]
+    fn always_true_satisfies() {
+        let s = Scenario::with_raw(b"");
+        assert_eq!(
+            AlwaysMatcher::new(true)
+                .evaluate(&s.input(Scope::Stream))
+                .status,
+            MatchStatus::Satisfied
+        );
+    }
+
+    #[test]
+    fn always_false_does_not_satisfy() {
+        let s = Scenario::with_raw(b"");
+        assert_eq!(
+            AlwaysMatcher::new(false)
+                .evaluate(&s.input(Scope::Stream))
+                .status,
+            MatchStatus::NotSatisfied
+        );
+    }
+}
