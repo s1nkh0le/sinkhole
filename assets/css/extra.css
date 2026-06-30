@@ -1,0 +1,21 @@
+
+/*
+*::selection {
+    background: #0097A7;
+    color: #ffffff;
+}
+
+*::-moz-selection {
+    background: #0097A7;
+    color: #ffffff;
+}
+
+*::-webkit-selection {
+    background: #0097A7;
+    color: #ffffff;
+}*/
+
+/* Smaller admonition content */
+.admonition {
+    font-size: .70rem !important;
+}
